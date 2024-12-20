@@ -1,26 +1,36 @@
-import 'package:dart_offlne_first/src/merkle_tree/merkle_tree.dart';
-import 'package:dart_offlne_first/src/messages/message.dart';
-import 'package:dart_offlne_first/src/offline_database/offline_database.dart';
-import 'package:dart_offlne_first/src/online_database/online_database.dart';
+import 'package:talon/src/offline_database/offline_database.dart';
+
+import '../online_database/online_database.dart';
 
 class SyncLayer {
-  late final MerkleTree _merkleTree;
   late final OnlineDatabase _onlineDatabase;
   late final OfflineDatabase _offlineDatabase;
 
+  final String userId;
+  final String clientId;
+
   SyncLayer({
+    required this.userId,
+    required this.clientId,
     required OnlineDatabase onlineDatabase,
     required OfflineDatabase offlineDatabase,
   }) {
     _onlineDatabase = onlineDatabase;
     _offlineDatabase = offlineDatabase;
-
-    _merkleTree = MerkleTree(offlineDatabase: _offlineDatabase);
   }
 
-  Future<void> runSync() async {
-    final localMerkleTreeHash = await _merkleTree.createMerkleTree();
-  }
+  Future<void> startPeriodicSync({int minuteInterval = 5}) async {}
 
-  Future<void> getMessagesFromServer() async {}
+  Future<void> runSync() async {}
+
+  Future<void> getMessagesFromServer() async {
+    final lastSyncedServerTimestamp =
+        await _offlineDatabase.readLastSyncedServerTimestamp();
+
+    final messagesFromServer = _onlineDatabase.getMessagesFromServer(
+      userId: userId,
+      clientId: clientId,
+      lastSyncedServerTimestamp: lastSyncedServerTimestamp,
+    );
+  }
 }

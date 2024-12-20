@@ -1,8 +1,9 @@
-import 'package:dart_offlne_first/src/messages/message.dart';
+import '../messages/message.dart';
 
 abstract class OnlineDatabase {
-  Future<List<Message>> getMessagesFromServer(
-      {required String localMerkleTreeHash});
-
-  Future<String> fetchMerkleTreeHashFromServer();
+  Future<List<Message>> getMessagesFromServer({
+    required String? lastSyncedServerTimestamp,
+    required String clientId,
+    required String userId,
+  });
 }

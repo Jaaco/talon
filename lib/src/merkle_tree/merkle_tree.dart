@@ -1,4 +1,4 @@
-import 'package:dart_offlne_first/src/offline_database/offline_database.dart';
+import 'package:talon/src/offline_database/offline_database.dart';
 
 class MerkleTree {
   final OfflineDatabase offlineDatabase;
