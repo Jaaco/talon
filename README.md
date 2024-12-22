@@ -1,39 +1,55 @@
-<!-- 
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# Talon
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/guides/libraries/writing-package-pages). 
+A lightweight dependency free layer for making offline first apps.
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-library-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/developing-packages). 
--->
+## The magic
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+`Talon` is a quick and reliable way to make offline first apps with Flutter. Anybody who has ever dabbled with doing this knows the complexity and setup required to make sure that the app:
 
-## Features
+- Can be used without internet connection indefinetely
+- Syncs all its changes to the server once connection is restored
+- Only syncs relevant data to and from the server (not the whole database)
+- Works with multiple (potentially offline) devices updating the same data
 
-TODO: List what your package can do. Maybe include images, gifs, or videos.
+`Talon` has a straight forward way of solving all of these problems, enabling you to focus on features for your users, while also offering a seamless app experience, no matter the internet connection.
 
-## Getting started
+## Using `Talon` in Flutter
 
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+Works with any local sql package (eg. [sqflite](https://pub.dev/packages/sqflite)).
 
-## Usage
-
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder. 
+Initial setup takes ~300LOC, after which any changes to persisted data can be made in the following style:
 
 ```dart
-const like = 'sample';
+class TodoRepository {
+  Future<void> addTodo(String id, String name) async {
+    await talon.saveChange(
+      table: 'todos',
+      row: id,
+      column: 'name',
+      value: name,
+    );
+  }
+
+  Future<void> updateIsDone(String id, bool todoState) async {
+    await talon.saveChange(
+      table: 'todos',
+      row: id,
+      column: 'is_done',
+      value: todoState ? '1' : '0',
+    );
+  }
+}
 ```
 
-## Additional information
+All changes made in this way will be:
 
-TODO: Tell users more about the package: where to find more information, how to 
-contribute to the package, how to file issues, what response they can expect 
-from the package authors, and more.
+- Immediately applied to the local sql database
+- Synced to the server at the next possible moment
+- Conflict free between the same account & multiple devices updating the same database field
+
+This package implements a CRDT (conflict-free replicated data type) to store each data change as `Message`, which contains:
+
+- Which field was changed
+- The new value of the field
+- Who changed the field (which user & from which device)
+- When was the field changed (to decide which change is the most current)
