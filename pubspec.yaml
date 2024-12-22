@@ -1,7 +1,7 @@
 name: talon
-description: A starting point for Dart libraries or applications.
+description: A lightweight dependency free layer for making offline first apps.
 version: 0.0.1
-# repository: https://github.com/my_org/my_repo
+repository: https://github.com/jaaco/talon
 
 environment:
   sdk: ^3.3.3
