@@ -21,6 +21,8 @@ abstract class OfflineDatabase {
 
   Future<void> markMessagesAsSynced(List<String> syncedMessageIds);
 
+  Future<bool> shouldApplyMessage(Message message);
+
   Future<bool> saveMessageFromServer(Message message) async {
     try {
       applyMessageToLocalMessageTable(message);

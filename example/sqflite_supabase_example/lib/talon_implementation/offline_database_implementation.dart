@@ -126,6 +126,7 @@ class MyOfflineDB extends OfflineDatabase {
     sharedPrefs.setInt('last_synced_server_timestamp', serverTimestamp);
   }
 
+  @override
   Future<bool> shouldApplyMessage(Message message) async {
     try {
       // Query to check if any row exists with a greater local_timestamp
