@@ -1,0 +1,31 @@
+{
+    "name": "Talon",
+    "description": "Documentation",
+    "sidebar": [
+        {
+            "group": "General",
+            "pages": [
+                {
+                    "title": "Getting Started",
+                    "href": "/",
+                    "icon": "rocket"
+                },
+                {
+                    "title": "Using talon",
+                    "href": "/usage",
+                    "icon": "claw"
+                }
+            ]
+        },
+        {
+            "group": "Development",
+            "pages": [
+                {
+                    "title": "Contributing",
+                    "href": "/contributing",
+                    "icon": "heart"
+                }
+            ]
+        }
+    ]
+}
