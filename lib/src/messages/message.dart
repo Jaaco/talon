@@ -1,20 +1,28 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'dart:convert';
 
+// todo(jacoo): create fromServerJson and fromLocalJson constructors that take potentially different params or default values
+// fromServerJson would set 'hasBeenSynced' to true by default
 class Message {
+  final String id;
+
   final String table;
   final String row;
   final String column;
   final String dataType;
   final String value;
 
-  final String? serverTimestamp;
+  final int? serverTimestamp;
   final String localTimestamp;
 
   final String userId;
   final String clientId;
 
-  const Message({
+  final bool hasBeenApplied;
+  final bool hasBeenSynced;
+
+  Message({
+    required this.id,
     required this.table,
     required this.row,
     required this.column,
@@ -24,20 +32,26 @@ class Message {
     required this.localTimestamp,
     required this.userId,
     required this.clientId,
+    required this.hasBeenApplied,
+    required this.hasBeenSynced,
   });
 
   Message copyWith({
+    String? id,
     String? table,
     String? row,
     String? column,
     String? dataType,
     String? value,
-    String? serverTimestamp,
+    int? serverTimestamp,
     String? localTimestamp,
     String? userId,
     String? clientId,
+    bool? hasBeenApplied,
+    bool? hasBeenSynced,
   }) {
     return Message(
+      id: id ?? this.id,
       table: table ?? this.table,
       row: row ?? this.row,
       column: column ?? this.column,
@@ -47,36 +61,44 @@ class Message {
       localTimestamp: localTimestamp ?? this.localTimestamp,
       userId: userId ?? this.userId,
       clientId: clientId ?? this.clientId,
+      hasBeenApplied: hasBeenApplied ?? this.hasBeenApplied,
+      hasBeenSynced: hasBeenSynced ?? this.hasBeenSynced,
     );
   }
 
   Map<String, dynamic> toMap() {
     return <String, dynamic>{
-      'table': table,
+      'id': id,
+      'table_name': table,
       'row': row,
       'column': column,
-      'dataType': dataType,
+      'data_type': dataType,
       'value': value,
-      'serverTimestamp': serverTimestamp,
-      'localTimestamp': localTimestamp,
-      'userId': userId,
-      'clientId': clientId,
+      'server_timestamp': serverTimestamp,
+      'local_timestamp': localTimestamp,
+      'user_id': userId,
+      'client_id': clientId,
+      'hasBeenApplied': hasBeenApplied ? 1 : 0,
+      'hasBeenSynced': hasBeenSynced ? 1 : 0,
     };
   }
 
   factory Message.fromMap(Map<String, dynamic> map) {
     return Message(
-      table: map['table'] as String,
+      id: map['id'] as String,
+      table: map['table_name'] as String,
       row: map['row'] as String,
       column: map['column'] as String,
-      dataType: map['dataType'] as String,
+      dataType: map['data_type'] as String,
       value: map['value'] as String,
-      serverTimestamp: map['serverTimestamp'] != null
-          ? map['serverTimestamp'] as String
+      serverTimestamp: map['server_timestamp'] != null
+          ? map['server_timestamp'] as int
           : null,
-      localTimestamp: map['localTimestamp'] as String,
-      userId: map['userId'] as String,
-      clientId: map['clientId'] as String,
+      localTimestamp: map['local_timestamp'] as String,
+      userId: map['user_id'] as String,
+      clientId: map['client_id'] as String,
+      hasBeenApplied: map['hasBeenApplied'] == 1 ? true : false,
+      hasBeenSynced: map['hasBeenSynced'] == 1 ? true : false,
     );
   }
 
@@ -87,14 +109,15 @@ class Message {
 
   @override
   String toString() {
-    return 'Message(table: $table, row: $row, column: $column, dataType: $dataType, value: $value, serverTimestamp: $serverTimestamp, localTimestamp: $localTimestamp, userId: $userId, clientId: $clientId)';
+    return 'Message(id: $id, table: $table, row: $row, column: $column, dataType: $dataType, value: $value, serverTimestamp: $serverTimestamp, localTimestamp: $localTimestamp, userId: $userId, clientId: $clientId, hasBeenApplied: $hasBeenApplied, hasBeenSynced: $hasBeenSynced)';
   }
 
   @override
   bool operator ==(covariant Message other) {
     if (identical(this, other)) return true;
 
-    return other.table == table &&
+    return other.id == id &&
+        other.table == table &&
         other.row == row &&
         other.column == column &&
         other.dataType == dataType &&
@@ -102,12 +125,15 @@ class Message {
         other.serverTimestamp == serverTimestamp &&
         other.localTimestamp == localTimestamp &&
         other.userId == userId &&
-        other.clientId == clientId;
+        other.clientId == clientId &&
+        other.hasBeenApplied == hasBeenApplied &&
+        other.hasBeenSynced == hasBeenSynced;
   }
 
   @override
   int get hashCode {
-    return table.hashCode ^
+    return id.hashCode ^
+        table.hashCode ^
         row.hashCode ^
         column.hashCode ^
         dataType.hashCode ^
@@ -115,6 +141,8 @@ class Message {
         serverTimestamp.hashCode ^
         localTimestamp.hashCode ^
         userId.hashCode ^
-        clientId.hashCode;
+        clientId.hashCode ^
+        hasBeenApplied.hashCode ^
+        hasBeenSynced.hashCode;
   }
 }

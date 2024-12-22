@@ -1,0 +1,28 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "sqflite_supabase_example",
+            "cwd": "example/sqflite_supabase_example",
+            "request": "launch",
+            "type": "dart"
+        },
+        {
+            "name": "sqflite_supabase_example (profile mode)",
+            "cwd": "example/sqflite_supabase_example",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile"
+        },
+        {
+            "name": "sqflite_supabase_example (release mode)",
+            "cwd": "example/sqflite_supabase_example",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release"
+        }
+    ]
+}

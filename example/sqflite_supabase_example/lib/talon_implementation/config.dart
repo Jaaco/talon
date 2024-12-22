@@ -1,0 +1,2 @@
+const supabaseUrl = '';
+const supabaseKey = '';

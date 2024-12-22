@@ -39,6 +39,9 @@ dependencies:
     path:
       ../../
   sqflite: ^2.4.1
+  shared_preferences: ^2.3.4
+  supabase_flutter: ^2.8.2
+  provider: ^6.1.2
 
 
 dev_dependencies:

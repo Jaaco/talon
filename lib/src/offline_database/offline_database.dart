@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import '../messages/message.dart';
 
 // todo(jacoo): make all local methods private once the API is known
@@ -11,9 +13,13 @@ abstract class OfflineDatabase {
   /// Apply a message to the message table
   Future<bool> applyMessageToLocalMessageTable(Message message);
 
-  Future<void> saveLastSyncedServerTimestamp(String serverTimestamp);
+  Future<void> saveLastSyncedServerTimestamp(int serverTimestamp);
 
-  Future<String?> readLastSyncedServerTimestamp();
+  Future<int?> readLastSyncedServerTimestamp();
+
+  Future<List<Message>> getUnsyncedMessages();
+
+  Future<void> markMessagesAsSynced(List<String> syncedMessageIds);
 
   Future<bool> saveMessageFromServer(Message message) async {
     try {
@@ -25,15 +31,32 @@ abstract class OfflineDatabase {
     try {
       applyMessageToLocalDataTable(message);
     } catch (e) {
-      return Future.value(false);
+      // return Future.value(true);
     }
 
     return Future.value(true);
   }
 
   Future<void> saveMessagesFromServer(List<Message> messages) async {
+    final futureResults = <Future<bool>>[];
     for (final message in messages) {
-      saveMessageFromServer(message);
+      final result = saveMessageFromServer(message);
+
+      futureResults.add(result);
+    }
+
+    final result = await Future.wait(futureResults);
+
+    final allMessagesWereSaved = !result.any((r) => r == false);
+
+    if (allMessagesWereSaved) {
+      final highestServerTimestamp = messages.fold(0, (val, message) {
+        if (message.serverTimestamp == null) return val;
+
+        return max(val, message.serverTimestamp!);
+      });
+
+      saveLastSyncedServerTimestamp(highestServerTimestamp);
     }
   }
 
