@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:talon/dart_offlne_first.dart';
+import 'package:talon/talon.dart';
 
 import 'offline_database_implementation.dart';
 import 'server_database_implementation.dart';

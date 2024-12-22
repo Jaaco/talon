@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:talon/dart_offlne_first.dart';
+import 'package:talon/talon.dart';
 
 class MyServerDatabaseImplementation extends ServerDatabase {
   final supabase = Supabase.instance.client;

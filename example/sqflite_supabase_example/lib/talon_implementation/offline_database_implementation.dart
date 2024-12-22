@@ -1,8 +1,8 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:talon/dart_offlne_first.dart';
 // ignore: depend_on_referenced_packages
 import 'package:path/path.dart';
+import 'package:talon/talon.dart';
 
 // todo(jacoo): user must provide a function that maps Message type dynamic to sql string type maybe
 // actually, maps the String 'dataType' to a function that maps the value to it's type before it can
