@@ -25,8 +25,15 @@ class MyOfflineDB extends OfflineDatabase {
     );
   }
 
+  // todo(jacoo): document the fact that the user MUST NOT forget to implement
+  // the check wether this message should be applied or not by comparing the
+  // local timestamps
   @override
   Future<bool> applyMessageToLocalDataTable(Message message) async {
+    final shouldApply = await shouldApplyMessage(message);
+
+    if (!shouldApply) return false;
+
     try {
       // Use a transaction to ensure atomicity
       await localDb.transaction((txn) async {
@@ -63,7 +70,11 @@ class MyOfflineDB extends OfflineDatabase {
     final messageMap = message.toMap();
 
     try {
-      await localDb.insert('messages', messageMap);
+      await localDb.insert(
+        'messages',
+        messageMap,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
 
       return true;
     } catch (e) {
@@ -115,7 +126,38 @@ class MyOfflineDB extends OfflineDatabase {
     sharedPrefs.setInt('last_synced_server_timestamp', serverTimestamp);
   }
 
+  Future<bool> shouldApplyMessage(Message message) async {
+    try {
+      // Query to check if any row exists with a greater local_timestamp
+      final result = await localDb.rawQuery(
+        '''
+      SELECT * 
+      FROM messages
+      WHERE table_name = ? AND row = ? AND column = ? AND local_timestamp > ?
+      LIMIT 1;
+      ''',
+        [
+          message.table,
+          message.row,
+          message.column,
+          message.localTimestamp,
+        ],
+      );
+
+      // If the result is empty, no rows with a greater timestamp exist
+      return result.isEmpty;
+    } catch (e) {
+      // ignore: avoid_print
+      print('Error in shouldApplyMessage: $e');
+      return false; // Return false in case of an error
+    }
+  }
+
   Future<void> createTables(Database db) async {
+    await db.execute('''
+        DROP TABLE IF EXISTS todos;
+        ''');
+
     await db.execute('''
         DROP TABLE IF EXISTS books;
         ''');
@@ -125,11 +167,10 @@ class MyOfflineDB extends OfflineDatabase {
         ''');
 
     await db.execute('''
-        CREATE TABLE books (
+        CREATE TABLE todos (
           id TEXT PRIMARY KEY,
           name TEXT DEFAULT '',
-          pages INTEGER DEFAULT 0,
-          imageUrl TEXT
+          is_done BOOLEAN DEFAULT 0
         );
       ''');
 

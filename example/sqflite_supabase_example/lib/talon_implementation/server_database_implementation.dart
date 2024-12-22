@@ -18,8 +18,7 @@ class MyServerDatabaseImplementation extends ServerDatabase {
           .select()
           .eq('user_id', userId)
           .gt('server_timestamp', lastSyncedServerTimestamp ?? -1)
-          .neq('client_id', '');
-      // todo(jacoo): use clientId here after testing again
+          .neq('client_id', clientId);
 
       return messagesRaw.map(Message.fromMap).toList();
     } catch (e) {
@@ -54,15 +53,18 @@ class MyServerDatabaseImplementation extends ServerDatabase {
         .from('messages')
         .stream(primaryKey: ['id'])
         // .eq('user_id', userId)
-        .gte('server_timestamp', lastSyncedServerTimestamp ?? -1)
+        .gt('server_timestamp', lastSyncedServerTimestamp ?? -1)
         // .neq('client_id', '')
         .listen(
           (data) {
-            final allMessages = data.map(Message.fromMap);
+            final allMessages = data.map(Message.fromMap).toList();
 
+            /// The following misses the fact that this device might be missing
+            /// it's own messages, for example due to a reinstallation. We can't
+            /// Though in the subscription, this is problably not necesesary.
             final relevantMessages = allMessages.where(
               (message) {
-                return message.clientId != ''; // todo(jacoo): use clientId
+                return message.clientId != clientId;
               },
             ).toList();
 

@@ -133,7 +133,7 @@ class SyncLayer {
       column: column,
       dataType: dataType,
       value: value,
-      localTimestamp: 'right now...', // todo(jacoo): get HLC state
+      localTimestamp: DateTime.now().toString(), // todo(jacoo): get HLC state
       userId: userId,
       clientId: clientId,
       hasBeenApplied: false,
@@ -145,6 +145,10 @@ class SyncLayer {
     await syncToServer();
   }
 
+  /// NOTE: the following will only work partially, if the online database has
+  /// the default behaviour like supabase of using a single increasing integer
+  /// for the whole 'messages' table instead of one per user.
+  ///
   /// This code makes sure that no messages are missed due to any errors in syncing
   /// run this code regularly (ie. on app start) to ensure that the database
   /// fixes itself.

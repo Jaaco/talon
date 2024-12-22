@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:sqflite_supabase_example/syncing_controls/widgets/control_button.dart';
 import 'package:sqflite_supabase_example/talon_implementation/sync_layer_implementation.dart';
 
+import '../../todo_feature/states/todo_list_state.dart';
 import '../states/syncing_controls_state.dart';
 
 class SyncingControlsWidget extends StatelessWidget {
@@ -18,6 +19,7 @@ class SyncingControlsWidget extends StatelessWidget {
         ControlButton(
           onPressed: () {
             syncLayer.syncFromServer();
+            Provider.of<TodoListState>(context, listen: false).readTodoList();
           },
           child: const Row(
             mainAxisAlignment: MainAxisAlignment.center,

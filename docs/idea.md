@@ -9,14 +9,14 @@ Multiple clients (your app) can use the same account at the same time. This impl
 
 ## How it works
 Additionally to all the tables you set up in your app, this syncing layer needs one additional table: "messages".
-In this table, each "message" will be stored. A message is a change to a field in your database. When the user changes for example a book in your app, the syncing layer would create a message with the following arguments:
+In this table, each "message" will be stored. A message is a change to a field in your database. When the user changes for example a todo in your app, the syncing layer would create a message with the following arguments:
 
 ```dart
 final message = Message(
-    table: 'books',
-    row: 'id_of_changed_book',
+    table: 'todos',
+    row: 'id_of_changed_todo',
     'column': 'name',
-    value: 'Some new book name',
+    value: 'Some new todo name',
 
     /// automatically set parameters:
     hasBeenSynced: false,
@@ -26,7 +26,7 @@ final message = Message(
 );
 ```
 
-This message would then be added to the local 'messages' table, as well as applied to the local 'books' table, changing the specified field.
+This message would then be added to the local 'messages' table, as well as applied to the local 'todos' table, changing the specified field.
 On the next sync with your server, this message would be sent to the server, and if received successfully, 'hasBeenSynced' would be set to true in your local 'messages' table, indicating that it has been seen by the server and doesn't need to be synced again.
 
 During syncing we not only upload all our local messages that haven't been seen by the server, we also fetch all of the messages that we have not seen from the server.

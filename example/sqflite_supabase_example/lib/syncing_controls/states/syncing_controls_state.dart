@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite_supabase_example/talon_implementation/sync_layer_implementation.dart';
 
 class SyncingControlsState extends ChangeNotifier {
