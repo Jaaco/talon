@@ -1,7 +1,8 @@
 name: talon
 description: A lightweight dependency free layer for making offline first apps.
-version: 0.0.1
+version: 0.0.2
 repository: https://github.com/jaaco/talon
+documentation: https://https://docs.page/jaaco/talon
 
 environment:
   sdk: ^3.3.3
