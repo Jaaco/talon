@@ -7,7 +7,7 @@ import 'server_database_implementation.dart';
 final offlineDatabase = MyOfflineDB();
 final serverDatabase = MyServerDatabaseImplementation();
 
-final syncLayer = SyncLayer(
+final talon = Talon(
   userId: 'user_1',
   clientId: clientId,
   serverDatabase: serverDatabase,

@@ -5,7 +5,7 @@ import 'package:talon/src/offline_database/offline_database.dart';
 
 import '../server_database/server_database.dart';
 
-class SyncLayer {
+class Talon {
   late final ServerDatabase _serverDatabase;
   late final OfflineDatabase _offlineDatabase;
   late final String Function() _createNewIdFunction;
@@ -41,7 +41,7 @@ class SyncLayer {
     }
   }
 
-  SyncLayer({
+  Talon({
     required this.userId,
     required this.clientId,
     required ServerDatabase serverDatabase,

@@ -9,7 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'todo_feature/widgets/add_todo.dart';
 import 'syncing_controls/states/syncing_controls_state.dart';
-import 'talon_implementation/sync_layer_implementation.dart';
+import 'talon_implementation/talon_implementation.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,7 +21,7 @@ void main() async {
 
   await offlineDatabase.init();
 
-  syncLayer.startPeriodicSync();
+  talon.startPeriodicSync();
 
   runApp(const MyApp());
 }

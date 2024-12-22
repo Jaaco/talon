@@ -1,4 +1,4 @@
-import 'package:sqflite_supabase_example/talon_implementation/sync_layer_implementation.dart';
+import 'package:sqflite_supabase_example/talon_implementation/talon_implementation.dart';
 
 import '../models/todo.dart';
 
@@ -8,7 +8,7 @@ class TodoRepository {
   final isDoneField = 'is_done';
 
   Future<void> addTodo(String id, String name) async {
-    await syncLayer.saveChange(
+    await talon.saveChange(
       table: table,
       row: id,
       column: nameField,
@@ -17,7 +17,7 @@ class TodoRepository {
   }
 
   Future<void> updateIsDone(String id, bool todoState) async {
-    await syncLayer.saveChange(
+    await talon.saveChange(
       table: table,
       row: id,
       column: isDoneField,
@@ -26,7 +26,7 @@ class TodoRepository {
   }
 
   void saveName({required String id, required String name}) {
-    syncLayer.saveChange(
+    talon.saveChange(
       table: table,
       row: id,
       column: nameField,

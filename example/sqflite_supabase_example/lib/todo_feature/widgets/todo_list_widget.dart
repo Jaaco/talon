@@ -1,7 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:sqflite_supabase_example/talon_implementation/sync_layer_implementation.dart';
+import 'package:sqflite_supabase_example/talon_implementation/talon_implementation.dart';
 
 import '../states/todo_list_state.dart';
 
@@ -19,7 +19,7 @@ class _TodoListWidgetState extends State<TodoListWidget> {
 
     Provider.of<TodoListState>(context, listen: false).readTodoList();
 
-    syncLayer.onMessagesReceived = (_) {
+    talon.onMessagesReceived = (_) {
       Provider.of<TodoListState>(context, listen: false).readTodoList();
     };
   }

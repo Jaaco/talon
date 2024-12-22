@@ -1,6 +1,10 @@
 {
     "name": "Talon",
     "description": "Documentation",
+    "theme": {
+        "primary": "#582EFF",
+        "primaryLight": "#582EFF"
+    },
     "sidebar": [
         {
             "group": "General",
@@ -11,9 +15,8 @@
                     "icon": "rocket"
                 },
                 {
-                    "title": "Using talon",
-                    "href": "/usage",
-                    "icon": "claw"
+                    "title": "Using Talon",
+                    "href": "/usage"
                 }
             ]
         },
