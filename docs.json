@@ -2,82 +2,69 @@
   "$schema": "https://docs.page/schema.json",
   "name": "Talon",
   "description": "A lightweight offline-first sync layer for Flutter",
-  "theme": "#6366f1",
-  "social": {
-    "github": "jaaco/talon"
+  "theme": {
+    "primary": "#6366f1"
   },
-  "anchors": [
-    {
-      "title": "pub.dev",
-      "href": "https://pub.dev/packages/talon",
-      "icon": "cube"
-    },
-    {
-      "title": "GitHub",
-      "href": "https://github.com/jaaco/talon",
-      "icon": "github"
-    }
-  ],
   "sidebar": [
     {
       "group": "Getting Started",
       "pages": [
-        { "title": "Introduction", "href": "/", "icon": "book-open" },
-        { "title": "Installation", "href": "/installation", "icon": "download" },
-        { "title": "Quick Start", "href": "/quick-start", "icon": "rocket" }
+        {"title": "Introduction", "href": "/"},
+        {"title": "Installation", "href": "/installation"},
+        {"title": "Quick Start", "href": "/quick-start"}
       ]
     },
     {
       "group": "Core Concepts",
       "pages": [
-        { "title": "How It Works", "href": "/concepts/how-it-works" },
-        { "title": "Messages", "href": "/concepts/messages" },
-        { "title": "Conflict Resolution", "href": "/concepts/conflict-resolution" },
-        { "title": "Sync Lifecycle", "href": "/concepts/sync-lifecycle" }
+        {"title": "How It Works", "href": "/concepts/how-it-works"},
+        {"title": "Messages", "href": "/concepts/messages"},
+        {"title": "Conflict Resolution", "href": "/concepts/conflict-resolution"},
+        {"title": "Sync Lifecycle", "href": "/concepts/sync-lifecycle"}
       ]
     },
     {
       "group": "Implementation Guide",
       "pages": [
-        { "title": "Overview", "href": "/guide/overview" },
-        { "title": "OfflineDatabase", "href": "/guide/offline-database" },
-        { "title": "ServerDatabase", "href": "/guide/server-database" },
-        { "title": "Database Schema", "href": "/guide/schema" }
+        {"title": "Overview", "href": "/guide/overview"},
+        {"title": "OfflineDatabase", "href": "/guide/offline-database"},
+        {"title": "ServerDatabase", "href": "/guide/server-database"},
+        {"title": "Database Schema", "href": "/guide/schema"}
       ]
     },
     {
       "group": "Backend Examples",
       "pages": [
-        { "title": "Supabase", "href": "/backends/supabase" },
-        { "title": "Firebase", "href": "/backends/firebase" },
-        { "title": "Custom REST API", "href": "/backends/rest-api" }
+        {"title": "Supabase", "href": "/backends/supabase"},
+        {"title": "Firebase", "href": "/backends/firebase"},
+        {"title": "Custom REST API", "href": "/backends/rest-api"}
       ]
     },
     {
       "group": "Advanced",
       "pages": [
-        { "title": "Configuration", "href": "/advanced/configuration" },
-        { "title": "Batching & Performance", "href": "/advanced/batching" },
-        { "title": "Change Streams", "href": "/advanced/streams" },
-        { "title": "Type Serialization", "href": "/advanced/serialization" },
-        { "title": "Hybrid Logical Clocks", "href": "/advanced/hlc" }
+        {"title": "Configuration", "href": "/advanced/configuration"},
+        {"title": "Batching & Performance", "href": "/advanced/batching"},
+        {"title": "Change Streams", "href": "/advanced/streams"},
+        {"title": "Type Serialization", "href": "/advanced/serialization"},
+        {"title": "Hybrid Logical Clocks", "href": "/advanced/hlc"}
       ]
     },
     {
       "group": "API Reference",
       "pages": [
-        { "title": "Talon", "href": "/api/talon" },
-        { "title": "Message", "href": "/api/message" },
-        { "title": "OfflineDatabase", "href": "/api/offline-database" },
-        { "title": "ServerDatabase", "href": "/api/server-database" },
-        { "title": "TalonSchema", "href": "/api/schema" }
+        {"title": "Talon", "href": "/api/talon"},
+        {"title": "Message", "href": "/api/message"},
+        {"title": "OfflineDatabase", "href": "/api/offline-database"},
+        {"title": "ServerDatabase", "href": "/api/server-database"},
+        {"title": "TalonSchema", "href": "/api/schema"}
       ]
     },
     {
       "group": "Troubleshooting",
       "pages": [
-        { "title": "Common Issues", "href": "/troubleshooting/common-issues" },
-        { "title": "Debugging", "href": "/troubleshooting/debugging" }
+        {"title": "Common Issues", "href": "/troubleshooting/common-issues"},
+        {"title": "Debugging", "href": "/troubleshooting/debugging"}
       ]
     }
   ]
