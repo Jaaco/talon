@@ -1,0 +1,186 @@
+---
+title: How It Works
+description: Understanding Talon's message-based sync architecture
+---
+
+# How It Works
+
+Talon uses a **message-based sync** architecture. Every change is stored as a message that flows through a simple pipeline.
+
+## The Big Picture
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Your App  │────▶│    Talon    │────▶│   Server    │
+│             │     │             │     │             │
+│ saveChange()│     │  Messages   │     │  Messages   │
+└─────────────┘     └─────────────┘     └─────────────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │  Local DB   │
+                    │             │
+                    │  Messages   │
+                    │  + Data     │
+                    └─────────────┘
+```
+
+## The Message Pipeline
+
+### 1. Local Change
+
+When you call `saveChange()`:
+
+```dart
+await talon.saveChange(
+  table: 'todos',
+  row: 'todo-1',
+  column: 'name',
+  value: 'Buy milk',
+);
+```
+
+Talon:
+1. Creates a `Message` with an HLC timestamp
+2. Saves the message to the local messages table
+3. Applies the change to your data table
+4. Emits a `TalonChange` event
+5. Queues the message for sync
+
+### 2. Sync to Server
+
+When sync runs:
+
+```dart
+// Automatic when syncIsEnabled = true
+// Or manual: await talon.forceSyncToServer();
+```
+
+Talon:
+1. Gets all unsynced messages (`hasBeenSynced = false`)
+2. Sends them to the server in batches
+3. Marks successfully sent messages as synced
+
+### 3. Sync from Server
+
+```dart
+// Automatic via subscription
+// Or manual: await talon.runSync();
+```
+
+Talon:
+1. Fetches messages from server (after last sync timestamp)
+2. Filters out messages from this client
+3. For each message:
+   - Saves to local messages table
+   - Checks HLC timestamp against existing value
+   - Applies if newer (conflict resolution)
+4. Emits `TalonChange` events
+
+## Data Flow Diagram
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                         YOUR APP                              │
+│                                                               │
+│  saveChange() ──┐                      ┌── changes.listen()  │
+│                 │                      │                      │
+└─────────────────┼──────────────────────┼─────────────────────┘
+                  │                      │
+                  ▼                      │
+┌──────────────────────────────────────────────────────────────┐
+│                         TALON                                 │
+│                                                               │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐       │
+│  │ Create      │    │ Apply to    │    │ Emit        │       │
+│  │ Message     │───▶│ Local DB    │───▶│ Change      │       │
+│  │ + HLC       │    │             │    │ Event       │       │
+│  └─────────────┘    └─────────────┘    └─────────────┘       │
+│         │                                                     │
+│         │           ┌─────────────┐                          │
+│         └──────────▶│ Queue for   │                          │
+│                     │ Sync        │                          │
+│                     └─────────────┘                          │
+│                            │                                  │
+└────────────────────────────┼─────────────────────────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────┐
+│                         SERVER                                │
+│                                                               │
+│  messages table (shared across all clients)                   │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Two Tables
+
+Talon requires two tables in your local database:
+
+### Messages Table
+
+Stores all messages (changes) for sync tracking:
+
+```sql
+CREATE TABLE talon_messages (
+  id TEXT PRIMARY KEY,
+  table_name TEXT,
+  row TEXT,
+  "column" TEXT,
+  value TEXT,
+  data_type TEXT,
+  local_timestamp TEXT,    -- HLC for conflict resolution
+  server_timestamp INTEGER, -- For incremental sync
+  user_id TEXT,
+  client_id TEXT,
+  hasBeenSynced INTEGER,   -- 0 = needs sync, 1 = synced
+  hasBeenApplied INTEGER   -- 0 = pending, 1 = applied
+);
+```
+
+### Your Data Tables
+
+Your actual data (unchanged by Talon):
+
+```sql
+CREATE TABLE todos (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  is_done INTEGER,
+  created_at TEXT
+);
+```
+
+## Sync States
+
+A message goes through these states:
+
+| State | `hasBeenSynced` | `hasBeenApplied` | Description |
+|-------|-----------------|------------------|-------------|
+| Created | `false` | `true` | Local change, applied, awaiting sync |
+| Synced | `true` | `true` | Sent to server successfully |
+| Received | `true` | `true` | From server, applied locally |
+| Received (conflict) | `true` | `false` | From server, not applied (older) |
+
+## Real-Time Updates
+
+Talon supports real-time updates via subscriptions:
+
+```dart
+// Talon subscribes to server messages
+talon.syncIsEnabled = true;  // This triggers subscription
+
+// Your app listens to Talon's stream
+talon.serverChanges.listen((change) {
+  // New data from another device!
+  if (change.affectsTable('todos')) {
+    refreshTodoList();
+  }
+});
+```
+
+## Next Steps
+
+- [Messages](/concepts/messages) - Deep dive into the Message model
+- [Conflict Resolution](/concepts/conflict-resolution) - How HLC works
+- [Sync Lifecycle](/concepts/sync-lifecycle) - Detailed sync process

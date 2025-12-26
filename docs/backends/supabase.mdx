@@ -1,0 +1,397 @@
+---
+title: Supabase
+description: Complete Supabase implementation guide for Talon
+---
+
+# Supabase Integration
+
+This guide shows how to integrate Talon with Supabase for a complete offline-first backend.
+
+## Prerequisites
+
+- Supabase project created
+- `supabase_flutter` package installed
+- Talon package installed
+
+```yaml
+dependencies:
+  talon: ^0.0.2
+  supabase_flutter: ^2.0.0
+  sqflite: ^2.3.0
+  uuid: ^4.2.0
+```
+
+## Step 1: Create Server Table
+
+Run this SQL in your Supabase SQL Editor:
+
+```sql
+-- Create messages table
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  table_name TEXT NOT NULL,
+  row TEXT NOT NULL,
+  "column" TEXT NOT NULL,
+  data_type TEXT NOT NULL DEFAULT '',
+  value TEXT NOT NULL,
+  server_timestamp BIGINT GENERATED ALWAYS AS IDENTITY,
+  local_timestamp TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  client_id TEXT NOT NULL
+);
+
+-- Indexes for efficient queries
+CREATE INDEX IF NOT EXISTS idx_messages_sync
+  ON messages(user_id, server_timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_messages_client
+  ON messages(client_id);
+
+-- Row Level Security
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can only see their own messages
+CREATE POLICY "Users can view own messages" ON messages
+  FOR SELECT USING (auth.uid()::text = user_id);
+
+-- Policy: Users can only insert their own messages
+CREATE POLICY "Users can insert own messages" ON messages
+  FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+
+-- Enable realtime
+ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+```
+
+## Step 2: Implement ServerDatabase
+
+```dart
+import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:talon/talon.dart';
+
+class SupabaseServerDatabase extends ServerDatabase {
+  final SupabaseClient _supabase;
+
+  SupabaseServerDatabase(this._supabase);
+
+  @override
+  Future<List<Message>> getMessagesFromServer({
+    required int? lastSyncedServerTimestamp,
+    required String clientId,
+    required String userId,
+  }) async {
+    try {
+      var query = _supabase
+          .from('messages')
+          .select()
+          .eq('user_id', userId)
+          .neq('client_id', clientId);
+
+      if (lastSyncedServerTimestamp != null) {
+        query = query.gt('server_timestamp', lastSyncedServerTimestamp);
+      }
+
+      final response = await query.order('server_timestamp', ascending: true);
+
+      return response.map<Message>((row) => Message(
+        id: row['id'] as String,
+        table: row['table_name'] as String,
+        row: row['row'] as String,
+        column: row['column'] as String,
+        dataType: row['data_type'] as String? ?? '',
+        value: row['value'] as String,
+        serverTimestamp: row['server_timestamp'] as int?,
+        localTimestamp: row['local_timestamp'] as String,
+        userId: row['user_id'] as String,
+        clientId: row['client_id'] as String,
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      )).toList();
+    } catch (e) {
+      print('Error fetching messages: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<bool> sendMessageToServer({required Message message}) async {
+    try {
+      await _supabase.from('messages').insert({
+        'id': message.id,
+        'table_name': message.table,
+        'row': message.row,
+        'column': message.column,
+        'data_type': message.dataType,
+        'value': message.value,
+        'local_timestamp': message.localTimestamp,
+        'user_id': message.userId,
+        'client_id': message.clientId,
+      });
+      return true;
+    } catch (e) {
+      print('Error sending message: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<List<String>> sendMessagesToServer({
+    required List<Message> messages,
+  }) async {
+    if (messages.isEmpty) return [];
+
+    try {
+      final rows = messages.map((m) => {
+        'id': m.id,
+        'table_name': m.table,
+        'row': m.row,
+        'column': m.column,
+        'data_type': m.dataType,
+        'value': m.value,
+        'local_timestamp': m.localTimestamp,
+        'user_id': m.userId,
+        'client_id': m.clientId,
+      }).toList();
+
+      await _supabase.from('messages').insert(rows);
+      return messages.map((m) => m.id).toList();
+    } catch (e) {
+      print('Batch insert failed, falling back: $e');
+      return super.sendMessagesToServer(messages: messages);
+    }
+  }
+
+  @override
+  StreamSubscription subscribeToServerMessages({
+    required String clientId,
+    required String userId,
+    required int? lastSyncedServerTimestamp,
+    required void Function(List<Message>) onMessagesReceived,
+  }) {
+    return _supabase
+        .from('messages')
+        .stream(primaryKey: ['id'])
+        .eq('user_id', userId)
+        .listen((rows) {
+          final messages = rows
+              .where((row) => row['client_id'] != clientId)
+              .where((row) {
+                if (lastSyncedServerTimestamp == null) return true;
+                final ts = row['server_timestamp'] as int?;
+                return ts != null && ts > lastSyncedServerTimestamp;
+              })
+              .map<Message>((row) => Message(
+                id: row['id'] as String,
+                table: row['table_name'] as String,
+                row: row['row'] as String,
+                column: row['column'] as String,
+                dataType: row['data_type'] as String? ?? '',
+                value: row['value'] as String,
+                serverTimestamp: row['server_timestamp'] as int?,
+                localTimestamp: row['local_timestamp'] as String,
+                userId: row['user_id'] as String,
+                clientId: row['client_id'] as String,
+                hasBeenApplied: false,
+                hasBeenSynced: true,
+              ))
+              .toList();
+
+          if (messages.isNotEmpty) {
+            onMessagesReceived(messages);
+          }
+        });
+  }
+}
+```
+
+## Step 3: Initialize Talon
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:talon/talon.dart';
+import 'package:uuid/uuid.dart';
+
+late Talon talon;
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Supabase
+  await Supabase.initialize(
+    url: 'https://your-project.supabase.co',
+    anonKey: 'your-anon-key',
+  );
+
+  runApp(MyApp());
+}
+
+Future<void> initializeTalon(String userId) async {
+  // Initialize local database
+  final offlineDb = SqliteOfflineDatabase();
+  await offlineDb.init();
+
+  // Initialize server database
+  final serverDb = SupabaseServerDatabase(Supabase.instance.client);
+
+  // Get or create client ID
+  final prefs = await SharedPreferences.getInstance();
+  var clientId = prefs.getString('client_id');
+  if (clientId == null) {
+    clientId = 'device-${Uuid().v4()}';
+    await prefs.setString('client_id', clientId);
+  }
+
+  // Create Talon instance
+  talon = Talon(
+    userId: userId,
+    clientId: clientId,
+    offlineDatabase: offlineDb,
+    serverDatabase: serverDb,
+    createNewIdFunction: () => Uuid().v4(),
+    config: TalonConfig(
+      batchSize: 50,
+      syncDebounce: Duration(milliseconds: 500),
+    ),
+  );
+
+  // Enable sync
+  talon.syncIsEnabled = true;
+
+  // Optional: Start periodic sync
+  talon.startPeriodicSync(interval: Duration(minutes: 5));
+}
+```
+
+## Step 4: Use Talon
+
+```dart
+class TodoRepository {
+  Future<void> addTodo(String name) async {
+    final id = Uuid().v4();
+
+    await talon.saveChanges([
+      TalonChangeData(table: 'todos', row: id, column: 'name', value: name),
+      TalonChangeData(table: 'todos', row: id, column: 'is_done', value: false),
+      TalonChangeData(table: 'todos', row: id, column: 'created_at', value: DateTime.now()),
+    ]);
+  }
+
+  Future<void> toggleTodo(String id, bool isDone) async {
+    await talon.saveChange(
+      table: 'todos',
+      row: id,
+      column: 'is_done',
+      value: isDone,
+    );
+  }
+
+  Future<void> deleteTodo(String id) async {
+    await talon.saveChange(
+      table: 'todos',
+      row: id,
+      column: 'deleted',
+      value: true,
+    );
+  }
+}
+```
+
+## Step 5: Listen for Changes
+
+```dart
+class TodoScreen extends StatefulWidget {
+  @override
+  _TodoScreenState createState() => _TodoScreenState();
+}
+
+class _TodoScreenState extends State<TodoScreen> {
+  List<Map<String, dynamic>> _todos = [];
+  late StreamSubscription _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTodos();
+
+    _subscription = talon.changes.listen((change) {
+      if (change.affectsTable('todos')) {
+        _loadTodos();
+      }
+    });
+  }
+
+  Future<void> _loadTodos() async {
+    final db = await openDatabase('app.db');
+    final todos = await db.query(
+      'todos',
+      where: 'deleted IS NULL OR deleted = 0',
+      orderBy: 'created_at DESC',
+    );
+    setState(() => _todos = todos);
+  }
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      itemCount: _todos.length,
+      itemBuilder: (context, index) {
+        final todo = _todos[index];
+        return CheckboxListTile(
+          title: Text(todo['name']),
+          value: todo['is_done'] == 1,
+          onChanged: (value) {
+            TodoRepository().toggleTodo(todo['id'], value ?? false);
+          },
+        );
+      },
+    );
+  }
+}
+```
+
+## Authentication Integration
+
+Use Supabase Auth to get the user ID:
+
+```dart
+// After login
+final user = Supabase.instance.client.auth.currentUser;
+if (user != null) {
+  await initializeTalon(user.id);
+}
+
+// On logout
+talon.dispose();
+```
+
+## Troubleshooting
+
+### Messages Not Syncing
+
+1. Check RLS policies are correct
+2. Verify `user_id` matches `auth.uid()`
+3. Check Supabase logs for errors
+
+### Realtime Not Working
+
+1. Ensure table is added to realtime publication
+2. Check Supabase realtime is enabled
+3. Verify subscription filters
+
+### Conflict Issues
+
+1. Ensure all devices use unique `clientId`
+2. Check device clocks are reasonably accurate
+3. Verify HLC timestamps are being generated
+
+## Next Steps
+
+- [Configuration](/advanced/configuration) - Tune sync behavior
+- [Batching](/advanced/batching) - Optimize performance

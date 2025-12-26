@@ -1,0 +1,109 @@
+---
+title: Batching & Performance
+description: Optimizing Talon's sync performance
+---
+
+# Batching & Performance
+
+Optimize Talon's sync for your use case.
+
+## Batch Size
+
+Control how many messages are sent per request:
+
+```dart
+TalonConfig(batchSize: 50)   // Default
+TalonConfig(batchSize: 100)  // Larger batches
+TalonConfig(batchSize: 20)   // Smaller batches
+```
+
+### Trade-offs
+
+| Larger Batches | Smaller Batches |
+|----------------|-----------------|
+| Fewer network requests | More requests |
+| Larger payloads | Smaller payloads |
+| All-or-nothing per batch | More granular progress |
+
+## Debouncing
+
+Reduce sync frequency during rapid saves:
+
+```dart
+TalonConfig(
+  syncDebounce: Duration(milliseconds: 500),
+  immediateSyncOnSave: false,
+)
+```
+
+### Timeline Example
+
+```
+0ms   - saveChange() → Timer starts
+100ms - saveChange() → Timer resets
+200ms - saveChange() → Timer resets
+700ms - Timer fires → syncToServer()
+
+// 3 changes, 1 sync request
+```
+
+## Batch Saves
+
+Use `saveChanges()` for related changes:
+
+```dart
+// Bad: 4 separate syncs
+await talon.saveChange(table: 't', row: id, column: 'a', value: 1);
+await talon.saveChange(table: 't', row: id, column: 'b', value: 2);
+await talon.saveChange(table: 't', row: id, column: 'c', value: 3);
+await talon.saveChange(table: 't', row: id, column: 'd', value: 4);
+
+// Good: 1 sync with 4 messages
+await talon.saveChanges([
+  TalonChangeData(table: 't', row: id, column: 'a', value: 1),
+  TalonChangeData(table: 't', row: id, column: 'b', value: 2),
+  TalonChangeData(table: 't', row: id, column: 'c', value: 3),
+  TalonChangeData(table: 't', row: id, column: 'd', value: 4),
+]);
+```
+
+## Server Batch Implementation
+
+Override `sendMessagesToServer()` for batch inserts:
+
+```dart
+@override
+Future<List<String>> sendMessagesToServer({
+  required List<Message> messages,
+}) async {
+  try {
+    // Single batch insert
+    await supabase.from('messages').insert(
+      messages.map((m) => m.toMap()).toList(),
+    );
+    return messages.map((m) => m.id).toList();
+  } catch (e) {
+    // Fall back to individual sends
+    return super.sendMessagesToServer(messages: messages);
+  }
+}
+```
+
+## Periodic Sync
+
+Use periodic sync as a safety net:
+
+```dart
+talon.startPeriodicSync(
+  interval: Duration(minutes: 5),
+);
+```
+
+## Recommendations
+
+| Use Case | Configuration |
+|----------|---------------|
+| Chat | Immediate sync, small batches |
+| Notes | 2s debounce, medium batches |
+| Forms | Submit triggers sync |
+| Import | Large debounce, large batches |

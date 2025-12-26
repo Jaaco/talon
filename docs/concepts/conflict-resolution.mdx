@@ -1,0 +1,239 @@
+---
+title: Conflict Resolution
+description: How Talon handles conflicts using Hybrid Logical Clocks
+---
+
+# Conflict Resolution
+
+When the same data is modified on multiple devices, Talon uses **Hybrid Logical Clocks (HLC)** to determine which change wins.
+
+## The Problem
+
+Consider this scenario:
+
+```
+Device A (offline):        Device B (offline):
+─────────────────         ─────────────────
+10:00 - Sets name         10:05 - Sets name
+        to "Buy milk"             to "Buy groceries"
+
+10:30 - Goes online       10:30 - Goes online
+        Syncs to server           Syncs to server
+```
+
+Both devices modified the same field. Which value should win?
+
+## The Solution: Last-Write-Wins
+
+Talon uses **last-write-wins (LWW)** based on HLC timestamps:
+
+```
+Device A: HLC 1704067200000:0:device-a  →  "Buy milk"
+Device B: HLC 1704067500000:0:device-b  →  "Buy groceries"
+                ↑
+          Later timestamp wins
+
+Result: "Buy groceries" (Device B's change)
+```
+
+## Hybrid Logical Clocks
+
+HLC combines physical time with a logical counter:
+
+```
+Format: {timestamp}:{count}:{node}
+
+Examples:
+000001704067200000:00000:device-a
+000001704067200000:00001:device-a  ← Same time, counter incremented
+000001704067200001:00000:device-b  ← Different time
+```
+
+### Why HLC?
+
+| Problem | HLC Solution |
+|---------|--------------|
+| Clocks out of sync | Uses max(local, received) time |
+| Same millisecond | Logical counter distinguishes |
+| Identical timestamps | Node ID breaks ties |
+
+### Comparison Order
+
+HLCs are compared in this order:
+
+1. **Timestamp** - Physical time in milliseconds
+2. **Count** - Logical counter
+3. **Node** - Device/client ID (alphabetically)
+
+```dart
+// HLC A: 1704067200000:5:device-a
+// HLC B: 1704067200000:3:device-b
+
+// Comparison:
+// 1. Timestamps equal (1704067200000)
+// 2. Count A (5) > Count B (3)
+// Result: A > B (A wins)
+```
+
+## How Conflict Resolution Works
+
+### Step 1: Receive Message
+
+When a message arrives from the server:
+
+```dart
+final incomingMessage = Message(
+  table: 'todos',
+  row: 'todo-1',
+  column: 'name',
+  value: 'Buy groceries',
+  localTimestamp: '000001704067500000:00000:device-b',
+  // ...
+);
+```
+
+### Step 2: Check Existing
+
+Talon queries for the existing timestamp:
+
+```dart
+final existingTimestamp = await offlineDb.getExistingTimestamp(
+  table: 'todos',
+  row: 'todo-1',
+  column: 'name',
+);
+// Returns: '000001704067200000:00000:device-a'
+```
+
+### Step 3: Compare
+
+```dart
+final comparison = HLC.compareTimestamps(
+  incomingMessage.localTimestamp,  // New
+  existingTimestamp,                // Existing
+);
+
+if (comparison > 0) {
+  // Incoming is newer → Apply it
+  await applyMessageToLocalDataTable(incomingMessage);
+} else {
+  // Existing is newer → Keep existing, store message anyway
+}
+```
+
+### Step 4: Store
+
+The message is always stored (for history), but only applied if newer:
+
+```dart
+// Always stored in messages table
+await applyMessageToLocalMessageTable(incomingMessage);
+
+// Only applied to data table if newer
+if (shouldApply) {
+  await applyMessageToLocalDataTable(incomingMessage);
+}
+```
+
+## Handling Clock Drift
+
+If a device's clock is significantly wrong, it could cause issues:
+
+```
+Device A: Clock correct (10:00)
+Device B: Clock 1 hour ahead (11:00)
+
+Device B's changes always "win" even when made later in real time.
+```
+
+### Mitigation Strategies
+
+1. **HLC automatically advances** - When receiving a future timestamp, the local clock advances to match
+2. **Maximum drift detection** - Optional drift limits can reject extreme cases
+
+```dart
+// HLC automatically keeps pace
+_updateHlcFromMessages(receivedMessages);
+```
+
+## Edge Cases
+
+### Same User, Multiple Devices
+
+Both changes are valid, last one wins:
+
+```
+Phone: Sets todo.name = "Buy milk" at 10:00
+Tablet: Sets todo.name = "Buy groceries" at 10:01
+
+Result: "Buy groceries" wins (later timestamp)
+```
+
+### Rapid Changes
+
+Counter ensures ordering:
+
+```
+10:00:00.000 - Change 1 → HLC 1704067200000:0:device
+10:00:00.000 - Change 2 → HLC 1704067200000:1:device
+10:00:00.000 - Change 3 → HLC 1704067200000:2:device
+
+All three are correctly ordered despite same millisecond.
+```
+
+### Offline for Extended Period
+
+Device A is offline for a week, makes changes, then syncs:
+
+```
+Week 1: Device B makes changes (synced)
+Week 2: Device A comes online with week-old changes
+
+Result: Device B's newer changes win for any conflicts.
+        Device A's changes only win for non-conflicting fields.
+```
+
+## Cell-Level Resolution
+
+Conflicts are resolved at the **cell level** (table/row/column), not the row level:
+
+```
+Device A: Sets todo.name = "Buy milk"
+Device B: Sets todo.is_done = true
+
+Both changes apply - no conflict (different columns)
+```
+
+This is more granular than row-level locking and preserves more user intent.
+
+## Best Practices
+
+### Design for Conflicts
+
+Structure your data to minimize conflicts:
+
+```dart
+// Instead of one "settings" object:
+await talon.saveChange(table: 'settings', row: 'user', column: 'data',
+  value: {'theme': 'dark', 'language': 'en'});
+
+// Use separate cells:
+await talon.saveChange(table: 'settings', row: 'user', column: 'theme',
+  value: 'dark');
+await talon.saveChange(table: 'settings', row: 'user', column: 'language',
+  value: 'en');
+```
+
+### Accept Eventually Consistent
+
+LWW means:
+- All devices eventually agree
+- The "latest" change wins
+- Some changes may be "lost" if superseded
+
+This is appropriate for most user-generated content.
+
+## Next Steps
+
+- [Hybrid Logical Clocks](/advanced/hlc) - Deep dive into HLC
+- [Sync Lifecycle](/concepts/sync-lifecycle) - Full sync process

@@ -1,0 +1,354 @@
+---
+title: Talon
+description: Core Talon class API reference
+---
+
+# Talon
+
+The main class for offline-first sync. Handles saving changes locally, syncing to server, and receiving server updates.
+
+## Constructor
+
+```dart
+Talon({
+  required String userId,
+  required String clientId,
+  required ServerDatabase serverDatabase,
+  required OfflineDatabase offlineDatabase,
+  required String Function() createNewIdFunction,
+  TalonConfig config = TalonConfig.defaultConfig,
+})
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `userId` | `String` | Unique identifier for the current user |
+| `clientId` | `String` | Unique identifier for this device/client |
+| `serverDatabase` | `ServerDatabase` | Your server database implementation |
+| `offlineDatabase` | `OfflineDatabase` | Your local database implementation |
+| `createNewIdFunction` | `String Function()` | Function to generate unique message IDs (e.g., UUID) |
+| `config` | `TalonConfig` | Optional configuration for sync behavior |
+
+### Example
+
+```dart
+final talon = Talon(
+  userId: 'user-123',
+  clientId: 'device-456',
+  serverDatabase: MySupabaseServerDatabase(supabase),
+  offlineDatabase: MySqliteOfflineDatabase(db),
+  createNewIdFunction: () => const Uuid().v4(),
+  config: const TalonConfig(
+    batchSize: 100,
+    syncDebounce: Duration(milliseconds: 300),
+  ),
+);
+```
+
+---
+
+## Properties
+
+### `syncIsEnabled`
+
+```dart
+bool get syncIsEnabled
+set syncIsEnabled(bool value)
+```
+
+Controls whether sync is active. When set to `true`:
+- Triggers an immediate sync (`runSync()`)
+- Subscribes to real-time server messages
+- Future `saveChange` calls will schedule syncs
+
+When set to `false`:
+- Unsubscribes from server messages
+- `saveChange` will only save locally
+
+### `changes`
+
+```dart
+Stream<TalonChange> get changes
+```
+
+Stream of all data changes (both local and server). Use this to react to changes in your UI.
+
+```dart
+talon.changes.listen((change) {
+  if (change.affectsTable('todos')) {
+    refreshTodoList();
+  }
+});
+```
+
+### `serverChanges`
+
+```dart
+Stream<TalonChange> get serverChanges
+```
+
+Stream of only server-originated changes. Filtered from `changes`.
+
+### `localChanges`
+
+```dart
+Stream<TalonChange> get localChanges
+```
+
+Stream of only locally-originated changes. Filtered from `changes`.
+
+---
+
+## Methods
+
+### `saveChange`
+
+```dart
+Future<void> saveChange({
+  required String table,
+  required String row,
+  required String column,
+  required dynamic value,
+  String? dataType,
+})
+```
+
+Save a single change. The change is:
+1. Applied immediately to local database
+2. Queued for sync to server (if sync enabled)
+3. Emitted on the `changes` stream
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `table` | `String` | Table name |
+| `row` | `String` | Row identifier (primary key) |
+| `column` | `String` | Column name |
+| `value` | `dynamic` | New value (auto-serialized) |
+| `dataType` | `String?` | Optional type hint |
+
+#### Supported Value Types
+
+| Dart Type | Serialized As | DataType |
+|-----------|---------------|----------|
+| `null` | `''` | `'null'` |
+| `String` | as-is | `'string'` |
+| `int` | `toString()` | `'int'` |
+| `double` | `toString()` | `'double'` |
+| `bool` | `'1'` or `'0'` | `'bool'` |
+| `DateTime` | ISO 8601 | `'datetime'` |
+| `Map`/`List` | JSON string | `'json'` |
+
+#### Example
+
+```dart
+await talon.saveChange(
+  table: 'todos',
+  row: 'todo-123',
+  column: 'name',
+  value: 'Buy groceries',
+);
+
+// With complex types
+await talon.saveChange(
+  table: 'users',
+  row: 'user-1',
+  column: 'metadata',
+  value: {'theme': 'dark', 'notifications': true},
+);
+```
+
+### `saveChanges`
+
+```dart
+Future<void> saveChanges(List<TalonChangeData> changes)
+```
+
+Save multiple changes efficiently. All changes are applied locally, then emitted as a single batch on the `changes` stream.
+
+```dart
+await talon.saveChanges([
+  TalonChangeData(
+    table: 'todos',
+    row: 'todo-1',
+    column: 'name',
+    value: 'Updated name',
+  ),
+  TalonChangeData(
+    table: 'todos',
+    row: 'todo-1',
+    column: 'updated_at',
+    value: DateTime.now(),
+  ),
+]);
+```
+
+### `runSync`
+
+```dart
+Future<void> runSync()
+```
+
+Perform a full sync cycle:
+1. Upload unsynced local messages to server
+2. Download new messages from server
+
+### `syncToServer`
+
+```dart
+Future<void> syncToServer()
+```
+
+Upload unsynced messages to the server. Messages are sent in batches (configured via `TalonConfig.batchSize`).
+
+### `syncFromServer`
+
+```dart
+Future<void> syncFromServer()
+```
+
+Download new messages from the server since last sync.
+
+### `forceSyncToServer`
+
+```dart
+Future<void> forceSyncToServer()
+```
+
+Immediately sync to server, bypassing any debounce timer.
+
+### `startPeriodicSync`
+
+```dart
+void startPeriodicSync({
+  Duration interval = const Duration(minutes: 5),
+})
+```
+
+Start a background timer that calls `runSync()` periodically.
+
+```dart
+talon.startPeriodicSync(interval: Duration(minutes: 10));
+```
+
+### `stopPeriodicSync`
+
+```dart
+void stopPeriodicSync()
+```
+
+Stop the periodic sync timer.
+
+### `dispose`
+
+```dart
+void dispose()
+```
+
+Clean up all resources. Call this when you're done with the Talon instance.
+
+```dart
+@override
+void dispose() {
+  talon.dispose();
+  super.dispose();
+}
+```
+
+---
+
+## TalonConfig
+
+Configuration class for Talon sync behavior.
+
+```dart
+class TalonConfig {
+  const TalonConfig({
+    this.batchSize = 50,
+    this.syncDebounce = const Duration(milliseconds: 500),
+    this.immediateSyncOnSave = false,
+  });
+}
+```
+
+### Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `batchSize` | `int` | `50` | Max messages per batch upload |
+| `syncDebounce` | `Duration` | `500ms` | Delay before sync after save |
+| `immediateSyncOnSave` | `bool` | `false` | Sync immediately on each save |
+
+### Presets
+
+```dart
+// Default: batch + debounce
+TalonConfig.defaultConfig
+
+// Immediate sync (no debounce)
+TalonConfig.immediate
+```
+
+---
+
+## TalonChange
+
+Represents a batch of changes from a single source.
+
+```dart
+class TalonChange {
+  final TalonChangeSource source;
+  final List<Message> messages;
+
+  List<Message> forTable(String table);
+  bool affectsTable(String table);
+  bool affectsRow(String table, String row);
+}
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `source` | `TalonChangeSource` | `.local` or `.server` |
+| `messages` | `List<Message>` | Changed messages |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `forTable(table)` | `List<Message>` | Filter messages by table |
+| `affectsTable(table)` | `bool` | Check if any message affects table |
+| `affectsRow(table, row)` | `bool` | Check if specific row changed |
+
+---
+
+## TalonChangeData
+
+Data structure for batch saves.
+
+```dart
+class TalonChangeData {
+  const TalonChangeData({
+    required this.table,
+    required this.row,
+    required this.column,
+    required this.value,
+    this.dataType,
+  });
+}
+```
+
+---
+
+## TalonChangeSource
+
+Enum indicating the origin of a change.
+
+```dart
+enum TalonChangeSource {
+  local,  // Change from saveChange
+  server, // Change received from server
+}
+```

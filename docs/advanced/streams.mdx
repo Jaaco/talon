@@ -1,0 +1,127 @@
+---
+title: Change Streams
+description: Listening to changes in Talon
+---
+
+# Change Streams
+
+Talon provides streams to listen for data changes.
+
+## Available Streams
+
+```dart
+// All changes (local and server)
+talon.changes.listen((change) { ... });
+
+// Only server changes
+talon.serverChanges.listen((change) { ... });
+
+// Only local changes
+talon.localChanges.listen((change) { ... });
+```
+
+## TalonChange
+
+Each change event contains:
+
+```dart
+class TalonChange {
+  final TalonChangeSource source;  // local or server
+  final List<Message> messages;    // The changes
+
+  // Helper methods
+  List<Message> forTable(String table);
+  bool affectsTable(String table);
+  bool affectsRow(String table, String row);
+}
+```
+
+## Usage Examples
+
+### Refresh on Any Change
+
+```dart
+talon.changes.listen((change) {
+  if (change.affectsTable('todos')) {
+    refreshTodoList();
+  }
+});
+```
+
+### Handle Server Updates
+
+```dart
+talon.serverChanges.listen((change) {
+  // Show notification for new data
+  if (change.affectsTable('messages')) {
+    showNewMessageNotification();
+  }
+});
+```
+
+### Track Specific Rows
+
+```dart
+talon.changes.listen((change) {
+  if (change.affectsRow('todos', currentTodoId)) {
+    refreshCurrentTodo();
+  }
+});
+```
+
+### Process Individual Messages
+
+```dart
+talon.changes.listen((change) {
+  for (final message in change.forTable('todos')) {
+    print('${message.column} changed to ${message.typedValue}');
+  }
+});
+```
+
+## Best Practices
+
+### Cancel Subscriptions
+
+```dart
+class _MyState extends State<MyWidget> {
+  late StreamSubscription _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = talon.changes.listen((_) => refresh());
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();  // Important!
+    super.dispose();
+  }
+}
+```
+
+### Debounce Refreshes
+
+```dart
+Timer? _refreshTimer;
+
+talon.changes.listen((change) {
+  if (change.affectsTable('todos')) {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer(Duration(milliseconds: 100), () {
+      refreshTodoList();
+    });
+  }
+});
+```
+
+### Filter by Source
+
+```dart
+// Only react to server changes (avoid reacting to own changes)
+talon.serverChanges.listen((change) {
+  showSyncIndicator();
+  refreshData();
+});
+```

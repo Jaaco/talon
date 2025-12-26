@@ -1,0 +1,217 @@
+---
+title: Database Schema
+description: Schema for local and server messages tables
+---
+
+# Database Schema
+
+Talon provides schema helpers for both local (SQLite) and server (PostgreSQL) databases.
+
+## Local Schema (SQLite)
+
+Use `TalonSchema.messagesTableSql` to create the local messages table:
+
+```dart
+@override
+Future<void> init() async {
+  await db.execute(TalonSchema.messagesTableSql);
+}
+```
+
+### Full Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS talon_messages (
+  id TEXT PRIMARY KEY,
+  table_name TEXT NOT NULL,
+  row TEXT NOT NULL,
+  "column" TEXT NOT NULL,
+  data_type TEXT NOT NULL DEFAULT '',
+  value TEXT NOT NULL,
+  server_timestamp INTEGER,
+  local_timestamp TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  hasBeenApplied INTEGER NOT NULL DEFAULT 0 CHECK (hasBeenApplied IN (0, 1)),
+  hasBeenSynced INTEGER NOT NULL DEFAULT 0 CHECK (hasBeenSynced IN (0, 1))
+);
+
+-- Index for finding unsynced messages
+CREATE INDEX IF NOT EXISTS idx_talon_messages_sync
+  ON talon_messages(hasBeenSynced);
+
+-- Index for conflict detection
+CREATE INDEX IF NOT EXISTS idx_talon_messages_lookup
+  ON talon_messages(table_name, row, "column");
+
+-- Index for incremental sync
+CREATE INDEX IF NOT EXISTS idx_talon_messages_server_ts
+  ON talon_messages(server_timestamp);
+```
+
+### Column Reference
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT | Unique message ID (UUID) |
+| `table_name` | TEXT | Target table name |
+| `row` | TEXT | Row identifier (primary key) |
+| `column` | TEXT | Column name |
+| `data_type` | TEXT | Type hint for deserialization |
+| `value` | TEXT | Serialized value |
+| `server_timestamp` | INTEGER | Server-assigned order |
+| `local_timestamp` | TEXT | HLC timestamp |
+| `user_id` | TEXT | User who made the change |
+| `client_id` | TEXT | Device that made the change |
+| `hasBeenApplied` | INTEGER | 1 if applied to data table |
+| `hasBeenSynced` | INTEGER | 1 if sent to server |
+
+## Server Schema (PostgreSQL)
+
+Use `TalonSchema.messagesTablePostgres` for Supabase or PostgreSQL:
+
+```sql
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  table_name TEXT NOT NULL,
+  row TEXT NOT NULL,
+  "column" TEXT NOT NULL,
+  data_type TEXT NOT NULL DEFAULT '',
+  value TEXT NOT NULL,
+  server_timestamp BIGINT GENERATED ALWAYS AS IDENTITY,
+  local_timestamp TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  client_id TEXT NOT NULL
+);
+
+-- Index for user-specific queries
+CREATE INDEX IF NOT EXISTS idx_messages_sync
+  ON messages(user_id, server_timestamp);
+
+-- Index for filtering by client
+CREATE INDEX IF NOT EXISTS idx_messages_client
+  ON messages(client_id);
+
+-- Enable Row Level Security
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+-- Users can only see their own messages
+CREATE POLICY "Users can view own messages" ON messages
+  FOR SELECT USING (auth.uid()::text = user_id);
+
+-- Users can only insert their own messages
+CREATE POLICY "Users can insert own messages" ON messages
+  FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+
+-- Enable realtime for this table
+ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+```
+
+### Server vs Local Columns
+
+| Column | Local | Server | Notes |
+|--------|-------|--------|-------|
+| `id` | ✓ | ✓ | Same |
+| `table_name` | ✓ | ✓ | Same |
+| `row` | ✓ | ✓ | Same |
+| `column` | ✓ | ✓ | Same |
+| `data_type` | ✓ | ✓ | Same |
+| `value` | ✓ | ✓ | Same |
+| `server_timestamp` | ✓ | ✓ | Auto-generated on server |
+| `local_timestamp` | ✓ | ✓ | Same |
+| `user_id` | ✓ | ✓ | Same |
+| `client_id` | ✓ | ✓ | Same |
+| `hasBeenApplied` | ✓ | ✗ | Local only |
+| `hasBeenSynced` | ✓ | ✗ | Local only |
+
+## Your Data Tables
+
+Design your data tables as normal. Talon doesn't require any special structure.
+
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  is_done INTEGER NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT UNIQUE,
+  display_name TEXT,
+  avatar_url TEXT
+);
+```
+
+### Recommendations
+
+1. **Use TEXT for IDs** - UUIDs as TEXT are portable
+2. **Use INTEGER for booleans** - SQLite doesn't have native bool
+3. **Use TEXT for dates** - Store as ISO 8601 strings
+
+## Migration Support
+
+### Adding a New Column
+
+If you need to add a column to the messages table:
+
+```sql
+-- Check if column exists before adding
+ALTER TABLE talon_messages ADD COLUMN IF NOT EXISTS new_column TEXT;
+```
+
+### Versioning
+
+Use database versioning for migrations:
+
+```dart
+_db = await openDatabase(
+  'app.db',
+  version: 2,
+  onCreate: (db, version) async {
+    await db.execute(TalonSchema.messagesTableSql);
+    // ... create other tables
+  },
+  onUpgrade: (db, oldVersion, newVersion) async {
+    if (oldVersion < 2) {
+      // Migration from v1 to v2
+      await db.execute('ALTER TABLE ...');
+    }
+  },
+);
+```
+
+## Index Usage
+
+### Sync Query
+
+```sql
+-- Uses idx_talon_messages_sync
+SELECT * FROM talon_messages WHERE hasBeenSynced = 0
+```
+
+### Conflict Query
+
+```sql
+-- Uses idx_talon_messages_lookup
+SELECT local_timestamp FROM talon_messages
+WHERE table_name = ? AND row = ? AND "column" = ?
+ORDER BY local_timestamp DESC
+LIMIT 1
+```
+
+### Incremental Sync Query
+
+```sql
+-- Uses idx_messages_sync (server)
+SELECT * FROM messages
+WHERE user_id = ? AND server_timestamp > ?
+```
+
+## Next Steps
+
+- [Supabase Example](/backends/supabase) - Complete server setup
+- [OfflineDatabase](/guide/offline-database) - Use the schema

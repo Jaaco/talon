@@ -1,0 +1,121 @@
+---
+title: Installation
+description: Add Talon to your Flutter project
+---
+
+# Installation
+
+Add Talon to your Flutter project in a few simple steps.
+
+## Requirements
+
+- Dart SDK: `^3.3.3`
+- Flutter: Any version compatible with Dart 3.3.3+
+
+## Add the Dependency
+
+Add `talon` to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  talon: ^0.0.2
+```
+
+Then run:
+
+```bash
+flutter pub get
+```
+
+## Import
+
+Import the package in your Dart files:
+
+```dart
+import 'package:talon/talon.dart';
+```
+
+## What's Included
+
+The `talon` package exports:
+
+| Export | Description |
+|--------|-------------|
+| `Talon` | Main sync controller |
+| `TalonChange` | Change event with messages |
+| `TalonChangeSource` | Enum: `local` or `server` |
+| `TalonChangeData` | Data for batch saves |
+| `TalonConfig` | Configuration options |
+| `Message` | The message model |
+| `OfflineDatabase` | Abstract interface for local DB |
+| `ServerDatabase` | Abstract interface for server |
+| `TalonSchema` | SQL schema helpers |
+| `HLC` | Hybrid Logical Clock (advanced) |
+
+## Additional Dependencies
+
+Talon has **zero dependencies** itself, but you'll need:
+
+### For Local Database
+
+Choose one:
+
+```yaml
+dependencies:
+  sqflite: ^2.3.0        # SQLite for mobile
+  # OR
+  drift: ^2.14.0         # Type-safe SQLite
+  # OR
+  hive: ^2.2.3           # NoSQL boxes
+```
+
+### For Server Communication
+
+Choose based on your backend:
+
+```yaml
+dependencies:
+  supabase_flutter: ^2.0.0  # For Supabase
+  # OR
+  firebase_core: ^2.24.0    # For Firebase
+  cloud_firestore: ^4.13.0
+  # OR
+  http: ^1.1.0              # For REST APIs
+```
+
+### For UUID Generation
+
+```yaml
+dependencies:
+  uuid: ^4.2.0  # For generating message IDs
+```
+
+## Recommended Setup
+
+A typical `pubspec.yaml` with Talon and Supabase:
+
+```yaml
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Talon for offline-first sync
+  talon: ^0.0.2
+
+  # Backend
+  supabase_flutter: ^2.0.0
+
+  # Local database
+  sqflite: ^2.3.0
+  path: ^1.8.0
+
+  # Utilities
+  uuid: ^4.2.0
+```
+
+## Next Steps
+
+Now that Talon is installed:
+
+1. [Quick Start](/quick-start) - Build your first offline-first feature
+2. [Implementation Guide](/guide/overview) - Set up your databases

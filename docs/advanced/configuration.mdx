@@ -1,0 +1,136 @@
+---
+title: Configuration
+description: Configuring Talon's sync behavior
+---
+
+# Configuration
+
+Talon provides configuration options through `TalonConfig`.
+
+## TalonConfig
+
+```dart
+final talon = Talon(
+  // ... required params
+  config: TalonConfig(
+    batchSize: 50,
+    syncDebounce: Duration(milliseconds: 500),
+    immediateSyncOnSave: false,
+  ),
+);
+```
+
+## Options
+
+### batchSize
+
+Maximum messages to send in a single sync batch.
+
+```dart
+TalonConfig(batchSize: 50)  // Default
+TalonConfig(batchSize: 100) // Larger batches
+TalonConfig(batchSize: 10)  // Smaller batches
+```
+
+**Trade-offs:**
+- Larger batches = fewer network requests, but larger payloads
+- Smaller batches = more requests, but faster partial progress
+
+### syncDebounce
+
+Time to wait before syncing after a save.
+
+```dart
+TalonConfig(syncDebounce: Duration(milliseconds: 500))  // Default
+TalonConfig(syncDebounce: Duration.zero)                 // Immediate
+TalonConfig(syncDebounce: Duration(seconds: 2))          // Delayed
+```
+
+**Use cases:**
+- Rapid typing: Use 500ms+ to batch keystrokes
+- Form submissions: Use zero for immediate sync
+- Bulk imports: Use longer debounce
+
+### immediateSyncOnSave
+
+Whether to sync immediately on every save (ignores debounce).
+
+```dart
+TalonConfig(immediateSyncOnSave: false)  // Default: Use debounce
+TalonConfig(immediateSyncOnSave: true)   // Sync after every save
+```
+
+## Presets
+
+### Default Configuration
+
+```dart
+TalonConfig.defaultConfig
+// batchSize: 50
+// syncDebounce: 500ms
+// immediateSyncOnSave: false
+```
+
+### Immediate Configuration
+
+```dart
+TalonConfig.immediate
+// batchSize: 50
+// syncDebounce: 0
+// immediateSyncOnSave: true
+```
+
+## Runtime Control
+
+### Enable/Disable Sync
+
+```dart
+talon.syncIsEnabled = true;   // Enable sync + subscription
+talon.syncIsEnabled = false;  // Disable sync, cancel subscription
+```
+
+### Force Sync
+
+```dart
+await talon.forceSyncToServer();  // Bypass debounce, sync now
+await talon.runSync();            // Full sync (up + down)
+```
+
+### Periodic Sync
+
+```dart
+talon.startPeriodicSync(interval: Duration(minutes: 5));
+talon.stopPeriodicSync();
+```
+
+## Recommendations
+
+### Chat App
+
+```dart
+TalonConfig(
+  batchSize: 20,
+  syncDebounce: Duration(milliseconds: 100),
+  immediateSyncOnSave: true,
+)
+```
+
+### Note-Taking App
+
+```dart
+TalonConfig(
+  batchSize: 50,
+  syncDebounce: Duration(seconds: 2),
+  immediateSyncOnSave: false,
+)
+```
+
+### Data Import
+
+```dart
+TalonConfig(
+  batchSize: 100,
+  syncDebounce: Duration(seconds: 5),
+  immediateSyncOnSave: false,
+)
+```

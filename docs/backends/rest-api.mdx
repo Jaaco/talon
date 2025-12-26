@@ -1,0 +1,185 @@
+---
+title: REST API
+description: Custom REST API integration guide for Talon
+---
+
+# REST API Integration
+
+This guide shows how to integrate Talon with a custom REST API.
+
+## API Requirements
+
+Your API needs these endpoints:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/messages` | Fetch messages |
+| POST | `/messages` | Create a message |
+| POST | `/messages/batch` | Create multiple messages |
+
+## Implementation
+
+```dart
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+class RestServerDatabase extends ServerDatabase {
+  final String baseUrl;
+  final String Function() getAuthToken;
+
+  RestServerDatabase({
+    required this.baseUrl,
+    required this.getAuthToken,
+  });
+
+  Map<String, String> get _headers => {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ${getAuthToken()}',
+  };
+
+  @override
+  Future<List<Message>> getMessagesFromServer({
+    required int? lastSyncedServerTimestamp,
+    required String clientId,
+    required String userId,
+  }) async {
+    final uri = Uri.parse('$baseUrl/messages').replace(
+      queryParameters: {
+        'user_id': userId,
+        'exclude_client_id': clientId,
+        if (lastSyncedServerTimestamp != null)
+          'after_timestamp': lastSyncedServerTimestamp.toString(),
+      },
+    );
+
+    final response = await http.get(uri, headers: _headers);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch messages');
+    }
+
+    final List<dynamic> data = json.decode(response.body);
+    return data.map((m) => Message.fromMap(m)).toList();
+  }
+
+  @override
+  Future<bool> sendMessageToServer({required Message message}) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/messages'),
+      headers: _headers,
+      body: json.encode({
+        'id': message.id,
+        'table_name': message.table,
+        'row': message.row,
+        'column': message.column,
+        'data_type': message.dataType,
+        'value': message.value,
+        'local_timestamp': message.localTimestamp,
+        'user_id': message.userId,
+        'client_id': message.clientId,
+      }),
+    );
+
+    return response.statusCode == 201;
+  }
+
+  @override
+  Future<List<String>> sendMessagesToServer({
+    required List<Message> messages,
+  }) async {
+    if (messages.isEmpty) return [];
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/messages/batch'),
+        headers: _headers,
+        body: json.encode(messages.map((m) => {
+          'id': m.id,
+          'table_name': m.table,
+          'row': m.row,
+          'column': m.column,
+          'data_type': m.dataType,
+          'value': m.value,
+          'local_timestamp': m.localTimestamp,
+          'user_id': m.userId,
+          'client_id': m.clientId,
+        }).toList()),
+      );
+
+      if (response.statusCode == 201) {
+        return messages.map((m) => m.id).toList();
+      }
+    } catch (e) {
+      // Fall back to individual sends
+    }
+
+    return super.sendMessagesToServer(messages: messages);
+  }
+
+  @override
+  StreamSubscription subscribeToServerMessages({
+    required String clientId,
+    required String userId,
+    required int? lastSyncedServerTimestamp,
+    required void Function(List<Message>) onMessagesReceived,
+  }) {
+    // Option 1: Polling
+    return Stream.periodic(Duration(seconds: 10)).listen((_) async {
+      final messages = await getMessagesFromServer(
+        lastSyncedServerTimestamp: lastSyncedServerTimestamp,
+        clientId: clientId,
+        userId: userId,
+      );
+      if (messages.isNotEmpty) {
+        onMessagesReceived(messages);
+      }
+    });
+
+    // Option 2: WebSocket (implement based on your server)
+  }
+}
+```
+
+## Server-Side Example (Node.js)
+
+```javascript
+const express = require('express');
+const app = express();
+
+let messages = [];
+let serverTimestamp = 0;
+
+app.get('/messages', (req, res) => {
+  const { user_id, exclude_client_id, after_timestamp } = req.query;
+
+  let result = messages.filter(m => m.user_id === user_id);
+
+  if (exclude_client_id) {
+    result = result.filter(m => m.client_id !== exclude_client_id);
+  }
+
+  if (after_timestamp) {
+    result = result.filter(m => m.server_timestamp > parseInt(after_timestamp));
+  }
+
+  res.json(result);
+});
+
+app.post('/messages', (req, res) => {
+  const message = {
+    ...req.body,
+    server_timestamp: ++serverTimestamp,
+  };
+  messages.push(message);
+  res.status(201).json(message);
+});
+
+app.post('/messages/batch', (req, res) => {
+  const newMessages = req.body.map(m => ({
+    ...m,
+    server_timestamp: ++serverTimestamp,
+  }));
+  messages.push(...newMessages);
+  res.status(201).json(newMessages);
+});
+```

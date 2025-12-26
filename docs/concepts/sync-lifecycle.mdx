@@ -1,0 +1,297 @@
+---
+title: Sync Lifecycle
+description: Understanding the complete sync process in Talon
+---
+
+# Sync Lifecycle
+
+This page covers the complete sync process from start to finish.
+
+## Sync Triggers
+
+Sync can be triggered in several ways:
+
+### 1. Enabling Sync
+
+```dart
+talon.syncIsEnabled = true;
+
+// This triggers:
+// 1. runSync() - Initial sync
+// 2. subscribeToServerMessages() - Real-time subscription
+```
+
+### 2. Saving Changes (with immediate sync)
+
+```dart
+final talon = Talon(
+  config: TalonConfig.immediate,  // No debounce
+);
+
+await talon.saveChange(...);  // Triggers sync immediately
+```
+
+### 3. Manual Sync
+
+```dart
+await talon.runSync();  // Full sync
+await talon.forceSyncToServer();  // Upload only
+```
+
+### 4. Periodic Sync
+
+```dart
+talon.startPeriodicSync(interval: Duration(minutes: 5));
+```
+
+## Sync to Server
+
+When syncing to server:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    syncToServer()                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Get unsynced messages                                   │
+│     └─▶ SELECT * FROM messages WHERE hasBeenSynced = 0     │
+│                                                             │
+│  2. Group into batches (config.batchSize)                   │
+│     └─▶ [batch1: 50 msgs] [batch2: 50 msgs] [batch3: 23]   │
+│                                                             │
+│  3. For each batch:                                         │
+│     ├─▶ Send to server (sendMessagesToServer)              │
+│     ├─▶ Get successful IDs                                  │
+│     └─▶ Mark as synced (UPDATE hasBeenSynced = 1)          │
+│                                                             │
+│  4. If batch partially fails:                               │
+│     └─▶ Stop processing (retry on next sync)               │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Code Flow
+
+```dart
+Future<void> syncToServer() async {
+  if (!_syncIsEnabled) return;
+
+  // 1. Get unsynced messages
+  final unsyncedMessages = await _offlineDatabase.getUnsyncedMessages();
+  if (unsyncedMessages.isEmpty) return;
+
+  // 2. Process in batches
+  for (int i = 0; i < unsyncedMessages.length; i += config.batchSize) {
+    final batch = unsyncedMessages.skip(i).take(config.batchSize).toList();
+
+    // 3. Send batch
+    final successfulIds = await _serverDatabase.sendMessagesToServer(
+      messages: batch,
+    );
+
+    // 4. Mark successful ones as synced
+    if (successfulIds.isNotEmpty) {
+      await _offlineDatabase.markMessagesAsSynced(successfulIds);
+    }
+
+    // 5. Stop if partial failure
+    if (successfulIds.length < batch.length) {
+      break;
+    }
+  }
+}
+```
+
+## Sync from Server
+
+When syncing from server:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    syncFromServer()                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Get last synced timestamp                               │
+│     └─▶ readLastSyncedServerTimestamp()                    │
+│                                                             │
+│  2. Fetch messages from server                              │
+│     └─▶ WHERE server_timestamp > lastSynced                │
+│     └─▶ AND client_id != myClientId                        │
+│                                                             │
+│  3. Update local HLC                                        │
+│     └─▶ Advance clock if received is ahead                 │
+│                                                             │
+│  4. Save messages locally                                   │
+│     ├─▶ Store in messages table                            │
+│     ├─▶ Check conflict (compare HLC)                       │
+│     └─▶ Apply to data table if newer                       │
+│                                                             │
+│  5. Emit change events                                      │
+│     └─▶ TalonChange(source: server, messages: [...])       │
+│                                                             │
+│  6. Update last synced timestamp                            │
+│     └─▶ saveLastSyncedServerTimestamp(highest)             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Code Flow
+
+```dart
+Future<void> syncFromServer() async {
+  if (!_syncIsEnabled) return;
+
+  // 1. Get last sync point
+  final lastSyncedServerTimestamp =
+      await _offlineDatabase.readLastSyncedServerTimestamp();
+
+  // 2. Fetch from server
+  final messagesFromServer = await _serverDatabase.getMessagesFromServer(
+    userId: userId,
+    clientId: clientId,
+    lastSyncedServerTimestamp: lastSyncedServerTimestamp,
+  );
+
+  if (messagesFromServer.isNotEmpty) {
+    // 3. Update HLC
+    _updateHlcFromMessages(messagesFromServer);
+
+    // 4. Save locally (with conflict resolution)
+    await _offlineDatabase.saveMessagesFromServer(messagesFromServer);
+
+    // 5. Emit events
+    _changesController.add(TalonChange(
+      source: TalonChangeSource.server,
+      messages: messagesFromServer,
+    ));
+  }
+}
+```
+
+## Real-Time Subscription
+
+For real-time updates:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                subscribeToServerMessages()                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Get last synced timestamp                               │
+│                                                             │
+│  2. Subscribe to server stream                              │
+│     └─▶ Filter: user_id = myUserId                         │
+│     └─▶ Filter: client_id != myClientId                    │
+│     └─▶ Filter: server_timestamp > lastSynced              │
+│                                                             │
+│  3. On new messages:                                        │
+│     ├─▶ Update HLC                                          │
+│     ├─▶ Save to local database                             │
+│     └─▶ Emit TalonChange event                             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Debounced Sync
+
+When using debounce:
+
+```dart
+final talon = Talon(
+  config: TalonConfig(
+    syncDebounce: Duration(milliseconds: 500),
+    immediateSyncOnSave: false,
+  ),
+);
+
+// Timeline:
+// 0ms   - saveChange() called, timer starts
+// 100ms - saveChange() called, timer resets
+// 200ms - saveChange() called, timer resets
+// 700ms - Timer fires, syncToServer() runs
+
+// All three changes are batched in one sync!
+```
+
+### Debounce Flow
+
+```
+saveChange()
+     │
+     ▼
+_scheduleSyncToServer()
+     │
+     ├─▶ Cancel existing timer
+     │
+     ├─▶ Start new timer (syncDebounce duration)
+     │
+     └─▶ On timer fire: syncToServer()
+```
+
+## Error Handling
+
+### Sync Failure
+
+```dart
+// If sendMessageToServer returns false:
+// - Message stays hasBeenSynced = false
+// - Will retry on next sync
+// - No data loss
+
+// If batch partially fails:
+// - Successfully sent messages are marked synced
+// - Failed messages retry next sync
+// - Processing stops for this sync cycle
+```
+
+### Network Errors
+
+```dart
+// ServerDatabase implementation should:
+try {
+  await supabase.from('messages').insert(data);
+  return true;
+} catch (e) {
+  // Log error
+  return false;  // Talon will retry
+}
+```
+
+## Lifecycle Events
+
+```dart
+// Listen to all changes
+talon.changes.listen((change) {
+  print('Source: ${change.source}');  // local or server
+  print('Messages: ${change.messages.length}');
+});
+
+// Listen to only server changes
+talon.serverChanges.listen((change) {
+  // Refresh UI with new data
+});
+
+// Listen to only local changes
+talon.localChanges.listen((change) {
+  // Track local activity
+});
+```
+
+## Dispose
+
+Clean up when done:
+
+```dart
+talon.dispose();
+
+// This:
+// 1. Cancels periodic sync timer
+// 2. Cancels debounce timer
+// 3. Cancels server subscription
+// 4. Closes change stream
+```
+
+## Next Steps
+
+- [Batching & Performance](/advanced/batching) - Optimize sync
+- [Configuration](/advanced/configuration) - Tune sync behavior

@@ -1,0 +1,97 @@
+---
+title: Type Serialization
+description: How Talon handles different data types
+---
+
+# Type Serialization
+
+Talon automatically serializes all Dart types to strings for storage.
+
+## Supported Types
+
+| Dart Type | dataType | Serialized |
+|-----------|----------|------------|
+| `null` | `'null'` | `''` |
+| `String` | `'string'` | `'Hello'` |
+| `int` | `'int'` | `'42'` |
+| `double` | `'double'` | `'3.14'` |
+| `bool` | `'bool'` | `'1'` or `'0'` |
+| `DateTime` | `'datetime'` | ISO 8601 |
+| `Map`/`List` | `'json'` | JSON string |
+
+## Automatic Detection
+
+Talon detects types automatically:
+
+```dart
+await talon.saveChange(table: 't', row: 'r', column: 'c',
+  value: 'Hello');          // string
+
+await talon.saveChange(table: 't', row: 'r', column: 'c',
+  value: 42);               // int
+
+await talon.saveChange(table: 't', row: 'r', column: 'c',
+  value: true);             // bool
+
+await talon.saveChange(table: 't', row: 'r', column: 'c',
+  value: DateTime.now());   // datetime
+
+await talon.saveChange(table: 't', row: 'r', column: 'c',
+  value: {'key': 'value'}); // json
+```
+
+## Reading Typed Values
+
+Use `message.typedValue`:
+
+```dart
+final message = Message(
+  dataType: 'int',
+  value: '42',
+  // ...
+);
+
+final count = message.typedValue as int;  // 42
+```
+
+## Custom Types
+
+For custom types, serialize to JSON:
+
+```dart
+class Todo {
+  final String name;
+  final bool isDone;
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'isDone': isDone,
+  };
+}
+
+// Save
+await talon.saveChange(
+  table: 'todos',
+  row: id,
+  column: 'data',
+  value: todo.toJson(),  // Serialized as JSON
+);
+
+// Read
+final json = message.typedValue as Map<String, dynamic>;
+final todo = Todo.fromJson(json);
+```
+
+## Type Hints
+
+Override auto-detection with explicit types:
+
+```dart
+await talon.saveChange(
+  table: 't',
+  row: 'r',
+  column: 'count',
+  value: '42',
+  dataType: 'string',  // Force string type
+);
+```

@@ -1,0 +1,244 @@
+---
+title: Messages
+description: Understanding the Message model in Talon
+---
+
+# Messages
+
+Every change in Talon is represented as a `Message`. Understanding messages is key to understanding Talon.
+
+## What is a Message?
+
+A message captures a single field-level change:
+
+```dart
+Message(
+  id: 'msg-abc-123',           // Unique ID
+  table: 'todos',              // Table name
+  row: 'todo-456',             // Row ID (primary key)
+  column: 'name',              // Column name
+  value: 'Buy milk',           // New value (serialized)
+  dataType: 'string',          // Type hint for deserialization
+  localTimestamp: '00001704...',  // HLC timestamp
+  serverTimestamp: 12345,      // Server-assigned order
+  userId: 'user-789',          // Who made the change
+  clientId: 'device-abc',      // Which device
+  hasBeenSynced: false,        // Sync status
+  hasBeenApplied: true,        // Applied to data table?
+)
+```
+
+## Message Fields
+
+### Identity Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `String` | Unique identifier (usually UUID) |
+| `userId` | `String` | The user who made this change |
+| `clientId` | `String` | The device/client that made this change |
+
+### Data Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `table` | `String` | Target table name |
+| `row` | `String` | Row identifier (primary key) |
+| `column` | `String` | Column/field name |
+| `value` | `String` | Serialized value |
+| `dataType` | `String` | Type hint for deserialization |
+
+### Timestamp Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `localTimestamp` | `String` | HLC timestamp for conflict resolution |
+| `serverTimestamp` | `int?` | Server-assigned order for sync |
+
+### Status Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hasBeenSynced` | `bool` | Has this been sent to the server? |
+| `hasBeenApplied` | `bool` | Has this been applied to the data table? |
+
+## Creating Messages
+
+You rarely create messages directly. Talon creates them when you call `saveChange()`:
+
+```dart
+await talon.saveChange(
+  table: 'todos',
+  row: 'todo-1',
+  column: 'name',
+  value: 'Buy milk',
+);
+
+// Talon internally creates:
+Message(
+  id: uuid.v4(),
+  table: 'todos',
+  row: 'todo-1',
+  column: 'name',
+  value: 'Buy milk',
+  dataType: 'string',
+  localTimestamp: hlcState.send().toString(),
+  serverTimestamp: null,
+  userId: talon.userId,
+  clientId: talon.clientId,
+  hasBeenApplied: false,
+  hasBeenSynced: false,
+)
+```
+
+## Value Serialization
+
+All values are stored as strings. Talon handles serialization:
+
+| Dart Type | `dataType` | Serialized Value |
+|-----------|-----------|------------------|
+| `null` | `'null'` | `''` |
+| `String` | `'string'` | `'Hello'` |
+| `int` | `'int'` | `'42'` |
+| `double` | `'double'` | `'3.14'` |
+| `bool` | `'bool'` | `'1'` or `'0'` |
+| `DateTime` | `'datetime'` | `'2024-01-15T10:30:00.000Z'` |
+| `Map`/`List` | `'json'` | `'{"key":"value"}'` |
+
+### Getting Typed Values
+
+Use `typedValue` to deserialize:
+
+```dart
+final message = Message(..., dataType: 'int', value: '42');
+
+final count = message.typedValue as int;  // 42
+```
+
+## Message Lifecycle
+
+### 1. Creation (Local Change)
+
+```dart
+await talon.saveChange(...);
+
+// Message created with:
+// - hasBeenSynced: false (needs sync)
+// - hasBeenApplied: true (applied to data)
+```
+
+### 2. Sync to Server
+
+```dart
+// During sync:
+await serverDb.sendMessageToServer(message: message);
+
+// On success:
+// - hasBeenSynced: true
+```
+
+### 3. Received from Server
+
+```dart
+// When receiving from server:
+
+// If newer than existing:
+// - hasBeenApplied: true
+// - Applied to data table
+
+// If older than existing:
+// - hasBeenApplied: false
+// - Stored but not applied
+```
+
+## Serialization
+
+### To/From Map
+
+```dart
+// For database storage
+final map = message.toMap();
+await db.insert('talon_messages', map);
+
+// From database
+final rows = await db.query('talon_messages');
+final messages = rows.map((r) => Message.fromMap(r)).toList();
+```
+
+### To/From JSON
+
+```dart
+// For network transmission
+final json = message.toJson();
+
+// From JSON
+final message = Message.fromJson(jsonString);
+```
+
+## Message Comparison
+
+Messages for the same cell (table/row/column) are compared by HLC timestamp:
+
+```dart
+final comparison = HLC.compareTimestamps(
+  message1.localTimestamp,
+  message2.localTimestamp,
+);
+
+if (comparison > 0) {
+  // message1 is newer
+} else if (comparison < 0) {
+  // message2 is newer
+}
+```
+
+## Best Practices
+
+### Use Meaningful IDs
+
+```dart
+// Good: UUIDs
+createNewIdFunction: () => uuid.v4(),
+
+// Also good: Prefixed UUIDs
+createNewIdFunction: () => 'msg-${uuid.v4()}',
+```
+
+### Keep Values Small
+
+Messages are stored individually. For large data:
+
+```dart
+// Instead of storing large JSON in one message:
+await talon.saveChange(
+  table: 'documents',
+  row: 'doc-1',
+  column: 'content',
+  value: largeJsonObject,  // Could be very large
+);
+
+// Consider normalizing:
+for (final section in document.sections) {
+  await talon.saveChange(
+    table: 'sections',
+    row: section.id,
+    column: 'content',
+    value: section.content,
+  );
+}
+```
+
+### Batch Related Changes
+
+```dart
+// Related changes should be batched:
+await talon.saveChanges([
+  TalonChangeData(table: 'todos', row: id, column: 'name', value: name),
+  TalonChangeData(table: 'todos', row: id, column: 'updated_at', value: DateTime.now()),
+]);
+```
+
+## Next Steps
+
+- [Conflict Resolution](/concepts/conflict-resolution) - How messages compete
+- [Type Serialization](/advanced/serialization) - Deep dive into types

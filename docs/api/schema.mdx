@@ -1,0 +1,302 @@
+---
+title: TalonSchema
+description: TalonSchema class API reference
+---
+
+# TalonSchema
+
+Provides schema definitions for Talon's messages table. Use these in your database initialization to ensure consistency with Talon's expectations.
+
+## Overview
+
+TalonSchema provides ready-to-use SQL for creating the messages table in both SQLite (local) and PostgreSQL (server) databases.
+
+## Static Properties
+
+### `messagesTableSql`
+
+```dart
+static const String messagesTableSql
+```
+
+SQLite-compatible schema for the local messages table. Creates the table with all required columns and indexes.
+
+```dart
+await db.execute(TalonSchema.messagesTableSql);
+```
+
+#### Generated SQL
+
+```sql
+CREATE TABLE IF NOT EXISTS talon_messages (
+  id TEXT PRIMARY KEY,
+  table_name TEXT NOT NULL,
+  row TEXT NOT NULL,
+  "column" TEXT NOT NULL,
+  data_type TEXT NOT NULL DEFAULT '',
+  value TEXT NOT NULL,
+  server_timestamp INTEGER,
+  local_timestamp TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  hasBeenApplied INTEGER NOT NULL DEFAULT 0
+    CHECK (hasBeenApplied IN (0, 1)),
+  hasBeenSynced INTEGER NOT NULL DEFAULT 0
+    CHECK (hasBeenSynced IN (0, 1))
+);
+
+CREATE INDEX IF NOT EXISTS idx_talon_messages_sync
+  ON talon_messages(hasBeenSynced);
+
+CREATE INDEX IF NOT EXISTS idx_talon_messages_lookup
+  ON talon_messages(table_name, row, "column");
+
+CREATE INDEX IF NOT EXISTS idx_talon_messages_server_ts
+  ON talon_messages(server_timestamp);
+```
+
+### `messagesTablePostgres`
+
+```dart
+static const String messagesTablePostgres
+```
+
+PostgreSQL-compatible schema for the server messages table. Includes Supabase Row Level Security policies and realtime configuration.
+
+```sql
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  table_name TEXT NOT NULL,
+  row TEXT NOT NULL,
+  "column" TEXT NOT NULL,
+  data_type TEXT NOT NULL DEFAULT '',
+  value TEXT NOT NULL,
+  server_timestamp BIGINT GENERATED ALWAYS AS IDENTITY,
+  local_timestamp TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  client_id TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_sync
+  ON messages(user_id, server_timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_messages_client
+  ON messages(client_id);
+
+-- Enable Row Level Security
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+-- Users can only see their own messages
+CREATE POLICY "Users can view own messages" ON messages
+  FOR SELECT USING (auth.uid()::text = user_id);
+
+-- Users can only insert their own messages
+CREATE POLICY "Users can insert own messages" ON messages
+  FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+
+-- Enable realtime for this table
+ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+```
+
+### `columnNames`
+
+```dart
+static const List<String> columnNames
+```
+
+All column names for the local messages table:
+
+```dart
+[
+  'id',
+  'table_name',
+  'row',
+  'column',
+  'data_type',
+  'value',
+  'server_timestamp',
+  'local_timestamp',
+  'user_id',
+  'client_id',
+  'hasBeenApplied',
+  'hasBeenSynced',
+]
+```
+
+### `serverColumnNames`
+
+```dart
+static const List<String> serverColumnNames
+```
+
+Column names for server-side table (without local tracking fields):
+
+```dart
+[
+  'id',
+  'table_name',
+  'row',
+  'column',
+  'data_type',
+  'value',
+  'server_timestamp',
+  'local_timestamp',
+  'user_id',
+  'client_id',
+]
+```
+
+---
+
+## Column Descriptions
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT | Unique message identifier (UUID) |
+| `table_name` | TEXT | Target table name (uses `table_name` not `table` to avoid SQL conflicts) |
+| `row` | TEXT | Row identifier (primary key value) |
+| `column` | TEXT | Column name that changed |
+| `data_type` | TEXT | Type hint for deserialization (string, int, bool, etc.) |
+| `value` | TEXT | Serialized value as string |
+| `server_timestamp` | INTEGER/BIGINT | Server-assigned auto-increment timestamp |
+| `local_timestamp` | TEXT | HLC timestamp for conflict resolution |
+| `user_id` | TEXT | User who made the change |
+| `client_id` | TEXT | Client/device that made the change |
+| `hasBeenApplied` | INTEGER | 1 if applied to data table, 0 otherwise (local only) |
+| `hasBeenSynced` | INTEGER | 1 if synced to server, 0 otherwise (local only) |
+
+---
+
+## Indexes
+
+### Local Database (SQLite)
+
+| Index | Columns | Purpose |
+|-------|---------|---------|
+| `idx_talon_messages_sync` | `hasBeenSynced` | Fast lookup of unsynced messages |
+| `idx_talon_messages_lookup` | `table_name, row, column` | Fast conflict resolution queries |
+| `idx_talon_messages_server_ts` | `server_timestamp` | Fast sync queries |
+
+### Server Database (PostgreSQL)
+
+| Index | Columns | Purpose |
+|-------|---------|---------|
+| `idx_messages_sync` | `user_id, server_timestamp` | Fast sync queries per user |
+| `idx_messages_client` | `client_id` | Fast filtering by client |
+
+---
+
+## Usage Examples
+
+### SQLite (sqflite)
+
+```dart
+import 'package:sqflite/sqflite.dart';
+import 'package:talon/talon.dart';
+
+Future<void> initDatabase() async {
+  final db = await openDatabase(
+    'app.db',
+    version: 1,
+    onCreate: (db, version) async {
+      // Create Talon messages table
+      await db.execute(TalonSchema.messagesTableSql);
+
+      // Create metadata table for sync tracking
+      await db.execute('''
+        CREATE TABLE talon_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      ''');
+
+      // Create your data tables
+      await db.execute('''
+        CREATE TABLE todos (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          is_done INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+    },
+  );
+}
+```
+
+### Supabase (PostgreSQL)
+
+Run in the Supabase SQL Editor:
+
+```sql
+-- Copy the content of TalonSchema.messagesTablePostgres
+-- Or run it manually:
+
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  table_name TEXT NOT NULL,
+  row TEXT NOT NULL,
+  "column" TEXT NOT NULL,
+  data_type TEXT NOT NULL DEFAULT '',
+  value TEXT NOT NULL,
+  server_timestamp BIGINT GENERATED ALWAYS AS IDENTITY,
+  local_timestamp TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  client_id TEXT NOT NULL
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_messages_sync
+  ON messages(user_id, server_timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_client
+  ON messages(client_id);
+
+-- Row Level Security
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own messages" ON messages
+  FOR SELECT USING (auth.uid()::text = user_id);
+
+CREATE POLICY "Users can insert own messages" ON messages
+  FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+
+-- Enable realtime
+ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+```
+
+### Firebase Firestore
+
+Firestore doesn't use SQL schemas, but structure your documents similarly:
+
+```javascript
+// Firestore document structure
+{
+  id: "msg-uuid",
+  table_name: "todos",
+  row: "todo-123",
+  column: "name",
+  data_type: "string",
+  value: "Buy milk",
+  server_timestamp: Timestamp,  // Use FieldValue.serverTimestamp()
+  local_timestamp: "1705123456789:0001:device-id",
+  user_id: "user-123",
+  client_id: "device-456"
+}
+
+// Recommended indexes (create in Firebase Console):
+// - user_id + server_timestamp (composite)
+// - client_id
+```
+
+---
+
+## Notes
+
+1. **Table Name**: The local table is named `talon_messages` to avoid conflicts with your data tables.
+
+2. **Column Quoting**: `"column"` is quoted because `column` is a reserved word in SQL.
+
+3. **Server Timestamp**: Uses `GENERATED ALWAYS AS IDENTITY` in PostgreSQL for auto-increment. SQLite leaves it nullable (set by server response).
+
+4. **Boolean Storage**: SQLite stores booleans as 0/1 integers with CHECK constraints.
+
+5. **RLS Policies**: The PostgreSQL schema includes Supabase Row Level Security. Modify for other PostgreSQL setups.

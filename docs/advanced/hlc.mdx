@@ -1,0 +1,124 @@
+---
+title: Hybrid Logical Clocks
+description: Deep dive into HLC for conflict resolution
+---
+
+# Hybrid Logical Clocks
+
+Talon uses Hybrid Logical Clocks (HLC) for conflict resolution. This page explains how they work.
+
+## What is HLC?
+
+HLC combines physical time with a logical counter:
+
+```
+Format: {timestamp}:{count}:{node}
+
+Example: 000001704067200000:00001:device-abc
+         └─────────────────┘ └───┘ └────────┘
+          Physical time      Count  Node ID
+```
+
+## Why HLC?
+
+| Problem | Solution |
+|---------|----------|
+| Clocks out of sync | Uses max(local, remote) time |
+| Same millisecond | Counter distinguishes |
+| Identical timestamps | Node ID breaks ties |
+
+## Components
+
+### Timestamp
+
+Wall clock time in milliseconds since epoch.
+
+```dart
+DateTime.now().millisecondsSinceEpoch  // 1704067200000
+```
+
+### Count
+
+Logical counter for same-millisecond ordering.
+
+```
+10:00:00.000 - Event 1 → count: 0
+10:00:00.000 - Event 2 → count: 1
+10:00:00.000 - Event 3 → count: 2
+10:00:00.001 - Event 4 → count: 0  // New millisecond, reset
+```
+
+### Node
+
+Device/client identifier for tie-breaking.
+
+```dart
+clientId: 'device-abc'  // Alphabetically compared
+```
+
+## Comparison
+
+HLCs compare in order: timestamp → count → node
+
+```dart
+// HLC A: 1704067200000:5:device-a
+// HLC B: 1704067200000:3:device-b
+
+// 1. Timestamps equal
+// 2. Count A (5) > Count B (3)
+// Result: A wins
+```
+
+## Using HLC Directly
+
+Most users don't need to interact with HLC directly, but you can:
+
+```dart
+// Parse an HLC from a string
+final hlc = HLC.tryParse(message.localTimestamp);
+if (hlc != null) {
+  print('Timestamp: ${hlc.timestamp}');
+  print('Count: ${hlc.count}');
+  print('Node: ${hlc.node}');
+}
+
+// Compare two HLC strings
+final result = HLC.compareTimestamps(ts1, ts2);
+if (result > 0) {
+  print('ts1 is newer');
+} else if (result < 0) {
+  print('ts2 is newer');
+} else {
+  print('Equal');
+}
+
+// Create an HLC
+final hlc = HLC.now('my-client-id');
+```
+
+## Clock Drift
+
+HLC handles clock drift automatically:
+
+1. When receiving a future timestamp, local clock advances
+2. When sending, uses max(wall clock, current HLC)
+3. Counter prevents duplicates
+
+```dart
+// Local clock: 10:00
+// Receive message with HLC at 10:05
+
+// Local HLC advances to 10:05 (with incremented counter)
+// Future local events will be > 10:05
+```
+
+## Best Practices
+
+1. **Use unique client IDs** - Prevents HLC collisions
+2. **Don't manipulate HLC** - Let Talon manage it
+3. **Trust the algorithm** - HLC handles edge cases
+
+## References
+
+- [Logical Physical Clocks paper](https://cse.buffalo.edu/tech-reports/2014-04.pdf)
+- [dart-hlc implementation](https://github.com/misha/dart-hlc)
