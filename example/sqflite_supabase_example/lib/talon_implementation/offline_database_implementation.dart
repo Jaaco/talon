@@ -86,14 +86,13 @@ class MyOfflineDB extends OfflineDatabase {
   Future<List<Message>> getUnsyncedMessages() async {
     final messagesRaw = await localDb.rawQuery(
       '''
-        SELECT * 
+        SELECT *
         FROM messages
+        WHERE hasBeenSynced = 0
       ''',
     );
 
-    final castMessages = messagesRaw.map(Message.fromMap);
-
-    return castMessages.toList();
+    return messagesRaw.map(Message.fromMap).toList();
   }
 
   @override

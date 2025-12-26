@@ -2,7 +2,10 @@ import 'dart:math';
 
 import '../messages/message.dart';
 
-// todo(jacoo): make all local methods private once the API is known
+/// Abstract interface for local database operations.
+///
+/// Implement this class to provide Talon with access to your local database
+/// (e.g., sqflite, Drift, Hive).
 abstract class OfflineDatabase {
   /// Initialize the database here.
   Future<void> init();
@@ -24,19 +27,22 @@ abstract class OfflineDatabase {
   Future<bool> shouldApplyMessage(Message message);
 
   Future<bool> saveMessageFromServer(Message message) async {
+    // Always save to message table first (for history/sync tracking)
     try {
-      applyMessageToLocalMessageTable(message);
+      await applyMessageToLocalMessageTable(message);
     } catch (e) {
-      return Future.value(false);
+      return false;
     }
 
+    // Apply to data table (may fail if table doesn't exist yet, etc.)
     try {
-      applyMessageToLocalDataTable(message);
+      await applyMessageToLocalDataTable(message);
     } catch (e) {
-      // return Future.value(true);
+      // Message saved but not applied—this is acceptable
+      // (e.g., table doesn't exist yet, schema mismatch)
     }
 
-    return Future.value(true);
+    return true;
   }
 
   Future<void> saveMessagesFromServer(List<Message> messages) async {
@@ -51,36 +57,34 @@ abstract class OfflineDatabase {
 
     final allMessagesWereSaved = !result.any((r) => r == false);
 
-    if (allMessagesWereSaved) {
+    if (allMessagesWereSaved && messages.isNotEmpty) {
       final highestServerTimestamp = messages.fold(0, (val, message) {
         if (message.serverTimestamp == null) return val;
 
         return max(val, message.serverTimestamp!);
       });
 
-      saveLastSyncedServerTimestamp(highestServerTimestamp);
+      await saveLastSyncedServerTimestamp(highestServerTimestamp);
     }
   }
 
   /// Saves a change that has just been made on the client.
   ///
-  /// First tries to apply the message, and only if successful does it save the message
-  /// to the message table.
-  /// Could in the future be saved to the message table either way, and marked with a bool
-  /// whether it has been applied locally, which is maybe a necessary field either way
+  /// First applies the message to the data table, then saves it to the
+  /// message table for sync tracking.
   Future<bool> saveMessageFromLocalChange(Message message) async {
     try {
-      applyMessageToLocalDataTable(message);
+      await applyMessageToLocalDataTable(message);
     } catch (e) {
-      return Future.value(false);
+      return false;
     }
 
     try {
-      applyMessageToLocalMessageTable(message);
+      await applyMessageToLocalMessageTable(message);
     } catch (e) {
-      return Future.value(false);
+      return false;
     }
 
-    return Future.value(true);
+    return true;
   }
 }
