@@ -494,4 +494,353 @@ void main() {
       expect(offlineDb.getValue('todos', 'todo-2', 'name'), equals('Server todo'));
     });
   });
+
+  group('Talon - Subscription and Callbacks', () {
+    test('onMessagesReceived is called when subscription receives message', () async {
+      final receivedMessages = <Message>[];
+      talon.onMessagesReceived = (messages) {
+        receivedMessages.addAll(messages);
+      };
+      talon.syncIsEnabled = true;
+
+      // Simulate a server message arriving via subscription
+      serverDb.simulateServerMessage(Message(
+        id: 'sub-msg-1',
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'From subscription',
+        localTimestamp: HLC.now('client-2').toString(),
+        userId: 'user-1',
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+
+      // Wait a bit for async processing
+      await Future.delayed(Duration(milliseconds: 50));
+
+      expect(receivedMessages, isNotEmpty);
+      expect(receivedMessages.first.value, equals('From subscription'));
+    });
+
+    test('onMessagesReceived can be changed', () async {
+      final firstCallback = <Message>[];
+      final secondCallback = <Message>[];
+
+      talon.onMessagesReceived = (messages) {
+        firstCallback.addAll(messages);
+      };
+      talon.syncIsEnabled = true;
+
+      // First message
+      serverDb.simulateServerMessage(Message(
+        id: 'msg-1',
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'First',
+        localTimestamp: HLC.now('client-2').toString(),
+        userId: 'user-1',
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+      await Future.delayed(Duration(milliseconds: 50));
+
+      // Change callback
+      talon.onMessagesReceived = (messages) {
+        secondCallback.addAll(messages);
+      };
+
+      // Second message
+      serverDb.simulateServerMessage(Message(
+        id: 'msg-2',
+        table: 'todos',
+        row: 'todo-2',
+        column: 'name',
+        value: 'Second',
+        localTimestamp: HLC.now('client-2').toString(),
+        userId: 'user-1',
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+      await Future.delayed(Duration(milliseconds: 50));
+
+      expect(firstCallback.length, equals(1));
+      expect(secondCallback.length, equals(1));
+    });
+
+    test('disabling sync stops subscription', () async {
+      final receivedMessages = <Message>[];
+      talon.onMessagesReceived = (messages) {
+        receivedMessages.addAll(messages);
+      };
+
+      talon.syncIsEnabled = true;
+      talon.syncIsEnabled = false;
+
+      // Simulate a server message - should not be received since sync is disabled
+      serverDb.simulateServerMessage(Message(
+        id: 'msg-ignored',
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'Should be ignored',
+        localTimestamp: HLC.now('client-2').toString(),
+        userId: 'user-1',
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+      await Future.delayed(Duration(milliseconds: 50));
+
+      expect(receivedMessages, isEmpty);
+    });
+
+    test('re-enabling sync restarts subscription', () async {
+      final receivedMessages = <Message>[];
+      talon.onMessagesReceived = (messages) {
+        receivedMessages.addAll(messages);
+      };
+
+      talon.syncIsEnabled = true;
+      talon.syncIsEnabled = false;
+      talon.syncIsEnabled = true;
+
+      serverDb.simulateServerMessage(Message(
+        id: 'msg-after-reenable',
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'After re-enable',
+        localTimestamp: HLC.now('client-2').toString(),
+        userId: 'user-1',
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+      await Future.delayed(Duration(milliseconds: 50));
+
+      expect(receivedMessages, isNotEmpty);
+    });
+  });
+
+  group('Talon - Edge Cases', () {
+    test('saveChange with empty value', () async {
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: '',
+      );
+
+      expect(offlineDb.getValue('todos', 'todo-1', 'name'), equals(''));
+    });
+
+    test('saveChange with special characters in value', () async {
+      final specialValue = 'Test with "quotes" and \'apostrophes\' and \n newlines';
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: specialValue,
+      );
+
+      expect(offlineDb.getValue('todos', 'todo-1', 'name'), equals(specialValue));
+    });
+
+    test('saveChange with unicode characters', () async {
+      final unicodeValue = 'Hello 世界 🌍 مرحبا';
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: unicodeValue,
+      );
+
+      expect(offlineDb.getValue('todos', 'todo-1', 'name'), equals(unicodeValue));
+    });
+
+    test('saveChange preserves dataType', () async {
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'priority',
+        value: '5',
+        dataType: 'int',
+      );
+
+      expect(offlineDb.messages.first.dataType, equals('int'));
+    });
+
+    test('multiple changes to same cell preserve order', () async {
+      for (int i = 0; i < 10; i++) {
+        await talon.saveChange(
+          table: 'todos',
+          row: 'todo-1',
+          column: 'counter',
+          value: i.toString(),
+        );
+      }
+
+      // Final value should be the last one
+      expect(offlineDb.getValue('todos', 'todo-1', 'counter'), equals('9'));
+    });
+
+    test('saveChange uses unique message IDs', () async {
+      final ids = <String>{};
+
+      for (int i = 0; i < 100; i++) {
+        await talon.saveChange(
+          table: 'todos',
+          row: 'todo-$i',
+          column: 'name',
+          value: 'Value $i',
+        );
+      }
+
+      for (final msg in offlineDb.messages) {
+        expect(ids.contains(msg.id), isFalse, reason: 'Duplicate ID found: ${msg.id}');
+        ids.add(msg.id);
+      }
+    });
+
+    test('syncFromServer with no new messages does nothing', () async {
+      talon.syncIsEnabled = true;
+      final initialCount = offlineDb.messageCount;
+
+      await talon.syncFromServer();
+
+      expect(offlineDb.messageCount, equals(initialCount));
+    });
+
+    test('syncToServer with no unsynced messages does nothing', () async {
+      talon.syncIsEnabled = true;
+
+      await talon.syncToServer();
+
+      expect(serverDb.messageCount, equals(0));
+    });
+
+    test('handles server failure gracefully', () async {
+      talon.syncIsEnabled = true;
+      serverDb.shouldFailSend = true;
+
+      // Should not throw
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'Will fail to sync',
+      );
+
+      // Message should still be stored locally
+      expect(offlineDb.messageCount, equals(1));
+      expect(offlineDb.unsyncedCount, equals(1));
+    });
+
+    test('partial sync failure marks only successful messages', () async {
+      talon.syncIsEnabled = true;
+
+      // Create two messages
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'First',
+      );
+
+      // Now fail subsequent sends
+      serverDb.shouldFailSend = true;
+
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-2',
+        column: 'name',
+        value: 'Second - will fail',
+      );
+
+      // First should be synced, second should not
+      expect(offlineDb.syncedCount, equals(1));
+      expect(offlineDb.unsyncedCount, equals(1));
+    });
+
+    test('large number of concurrent changes', () async {
+      final futures = <Future>[];
+
+      for (int i = 0; i < 50; i++) {
+        futures.add(talon.saveChange(
+          table: 'todos',
+          row: 'todo-$i',
+          column: 'name',
+          value: 'Todo $i',
+        ));
+      }
+
+      await Future.wait(futures);
+
+      expect(offlineDb.messageCount, equals(50));
+    });
+
+    test('very long value is preserved', () async {
+      final longValue = 'A' * 10000;
+
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: longValue,
+      );
+
+      expect(offlineDb.getValue('todos', 'todo-1', 'name'), equals(longValue));
+    });
+  });
+
+  group('Talon - Data Isolation', () {
+    test('different users do not see each others data', () async {
+      talon.syncIsEnabled = true;
+
+      // Message from different user
+      serverDb.simulateServerMessage(Message(
+        id: 'other-user-msg',
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'Other user data',
+        localTimestamp: HLC.now('client-2').toString(),
+        userId: 'user-2', // Different user
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+
+      await talon.syncFromServer();
+
+      expect(offlineDb.messageCount, equals(0));
+    });
+
+    test('same user on different client sees data', () async {
+      talon.syncIsEnabled = true;
+
+      serverDb.simulateServerMessage(Message(
+        id: 'same-user-msg',
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'Same user, different client',
+        localTimestamp: HLC.now('client-2').toString(),
+        userId: 'user-1', // Same user
+        clientId: 'client-2', // Different client
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+
+      await talon.syncFromServer();
+
+      expect(offlineDb.messageCount, equals(1));
+      expect(offlineDb.getValue('todos', 'todo-1', 'name'), equals('Same user, different client'));
+    });
+  });
 }
