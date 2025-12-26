@@ -145,4 +145,39 @@ class Message {
         hasBeenApplied.hashCode ^
         hasBeenSynced.hashCode;
   }
+
+  /// Deserialize the value based on dataType.
+  ///
+  /// Returns the original typed value based on the dataType field.
+  /// Supported types: null, string, int, double, bool, datetime, json.
+  ///
+  /// Note: This is a convenience method for reading values.
+  /// The actual database storage/retrieval is the developer's responsibility.
+  dynamic get typedValue {
+    switch (dataType) {
+      case 'null':
+        return null;
+      case '':
+        if (value.isEmpty) return null;
+        return value;
+      case 'string':
+        return value;
+      case 'int':
+        return int.tryParse(value) ?? 0;
+      case 'double':
+        return double.tryParse(value) ?? 0.0;
+      case 'bool':
+        return value == '1' || value.toLowerCase() == 'true';
+      case 'datetime':
+        return DateTime.tryParse(value);
+      case 'json':
+        try {
+          return json.decode(value);
+        } catch (e) {
+          return value;
+        }
+      default:
+        return value;
+    }
+  }
 }
