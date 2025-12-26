@@ -47,19 +47,6 @@ class MockOfflineDatabase extends OfflineDatabase {
   }
 
   @override
-  Future<bool> shouldApplyMessage(Message message) async {
-    final existingTimestamp = await getExistingTimestamp(
-      table: message.table,
-      row: message.row,
-      column: message.column,
-    );
-
-    if (existingTimestamp == null) return true;
-
-    return HLC.compareTimestamps(message.localTimestamp, existingTimestamp) > 0;
-  }
-
-  @override
   Future<List<Message>> getUnsyncedMessages() async {
     return messages.where((m) => !m.hasBeenSynced).toList();
   }

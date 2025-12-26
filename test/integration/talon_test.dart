@@ -232,6 +232,109 @@ void main() {
       expect(offlineDb.getValue('todos', 'todo-1', 'name'), equals('First todo'));
       expect(offlineDb.getValue('todos', 'todo-2', 'name'), equals('Second todo'));
     });
+
+    test('server message with older timestamp does not overwrite local', () async {
+      talon.syncIsEnabled = true;
+
+      // Make a local change with current timestamp
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'Local value',
+      );
+
+      // Simulate receiving an older server message
+      final oldTimestamp = HLC(
+        timestamp: DateTime.now().millisecondsSinceEpoch - 10000,
+        count: 0,
+        node: 'client-2',
+      ).toString();
+
+      serverDb.simulateServerMessage(Message(
+        id: 'old-server-msg',
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'Old server value',
+        localTimestamp: oldTimestamp,
+        userId: 'user-1',
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+
+      await talon.syncFromServer();
+
+      // Local value should remain
+      expect(offlineDb.getValue('todos', 'todo-1', 'name'), equals('Local value'));
+    });
+
+    test('server message with newer timestamp overwrites local', () async {
+      talon.syncIsEnabled = true;
+
+      // Make a local change
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'Local value',
+      );
+
+      // Small delay to ensure different timestamp
+      await Future.delayed(Duration(milliseconds: 10));
+
+      // Simulate receiving a newer server message
+      serverDb.simulateServerMessage(Message(
+        id: 'new-server-msg',
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'New server value',
+        localTimestamp: HLC.now('client-2').toString(),
+        userId: 'user-1',
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+
+      await talon.syncFromServer();
+
+      // Server value should win
+      expect(offlineDb.getValue('todos', 'todo-1', 'name'), equals('New server value'));
+    });
+
+    test('concurrent edits to different columns both apply', () async {
+      talon.syncIsEnabled = true;
+
+      // Local change to 'name'
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'My todo',
+      );
+
+      // Server change to 'is_done' (different column)
+      serverDb.simulateServerMessage(Message(
+        id: 'server-done-msg',
+        table: 'todos',
+        row: 'todo-1',
+        column: 'is_done',
+        value: '1',
+        localTimestamp: HLC.now('client-2').toString(),
+        userId: 'user-1',
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+
+      await talon.syncFromServer();
+
+      // Both changes should be applied
+      expect(offlineDb.getValue('todos', 'todo-1', 'name'), equals('My todo'));
+      expect(offlineDb.getValue('todos', 'todo-1', 'is_done'), equals('1'));
+    });
   });
 
   group('Talon - HLC Updates', () {
@@ -256,6 +359,85 @@ void main() {
         HLC.compareTimestamps(second.localTimestamp, first.localTimestamp),
         greaterThan(0),
       );
+    });
+
+    test('HLC updates from received server messages', () async {
+      talon.syncIsEnabled = true;
+
+      // First make a local change
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-1',
+        column: 'name',
+        value: 'Local',
+      );
+      final localMessage = offlineDb.messages.first;
+
+      // Simulate receiving a message with a future timestamp
+      final futureTimestamp = HLC(
+        timestamp: DateTime.now().millisecondsSinceEpoch + 10000,
+        count: 5,
+        node: 'client-2',
+      ).toString();
+
+      serverDb.simulateServerMessage(Message(
+        id: 'future-msg',
+        table: 'todos',
+        row: 'todo-2',
+        column: 'name',
+        value: 'Future',
+        localTimestamp: futureTimestamp,
+        userId: 'user-1',
+        clientId: 'client-2',
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      ));
+
+      await talon.syncFromServer();
+
+      // Now make another local change
+      await talon.saveChange(
+        table: 'todos',
+        row: 'todo-3',
+        column: 'name',
+        value: 'After sync',
+      );
+
+      final afterSyncMessage = offlineDb.messages.last;
+
+      // The new local message should have a timestamp greater than both
+      // the original local message and the received future message
+      expect(
+        HLC.compareTimestamps(afterSyncMessage.localTimestamp, localMessage.localTimestamp),
+        greaterThan(0),
+      );
+      expect(
+        HLC.compareTimestamps(afterSyncMessage.localTimestamp, futureTimestamp),
+        greaterThan(0),
+      );
+    });
+
+    test('rapid successive changes increment HLC count', () async {
+      // Make several changes in rapid succession
+      for (int i = 0; i < 5; i++) {
+        await talon.saveChange(
+          table: 'todos',
+          row: 'todo-$i',
+          column: 'name',
+          value: 'Value $i',
+        );
+      }
+
+      // All messages should have strictly increasing HLCs
+      for (int i = 1; i < offlineDb.messages.length; i++) {
+        final prev = offlineDb.messages[i - 1];
+        final curr = offlineDb.messages[i];
+
+        expect(
+          HLC.compareTimestamps(curr.localTimestamp, prev.localTimestamp),
+          greaterThan(0),
+        );
+      }
     });
   });
 

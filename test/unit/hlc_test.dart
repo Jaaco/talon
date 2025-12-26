@@ -135,6 +135,97 @@ void main() {
       expect(restored.count, equals(original.count));
       expect(restored.node, equals(original.node));
     });
+
+    group('edge cases', () {
+      test('handles zero timestamp', () {
+        final hlc = HLC(timestamp: 0, count: 0, node: 'node');
+        final packed = hlc.toString();
+        final restored = HLC.tryParse(packed);
+
+        expect(restored, isNotNull);
+        expect(restored!.timestamp, equals(0));
+      });
+
+      test('handles very large timestamp', () {
+        // Max safe integer in JavaScript (relevant for cross-platform)
+        final hlc = HLC(timestamp: 9007199254740991, count: 0, node: 'node');
+        final packed = hlc.toString();
+        final restored = HLC.tryParse(packed);
+
+        expect(restored, isNotNull);
+        expect(restored!.timestamp, equals(9007199254740991));
+      });
+
+      test('handles very large count', () {
+        final hlc = HLC(timestamp: 1000, count: 99999, node: 'node');
+        final packed = hlc.toString();
+        final restored = HLC.tryParse(packed);
+
+        expect(restored, isNotNull);
+        expect(restored!.count, equals(99999));
+      });
+
+      test('handles empty node', () {
+        final hlc = HLC(timestamp: 1000, count: 0, node: '');
+        final packed = hlc.toString();
+        final restored = HLC.tryParse(packed);
+
+        expect(restored, isNotNull);
+        expect(restored!.node, equals(''));
+      });
+
+      test('handles node with special characters', () {
+        final hlc = HLC(timestamp: 1000, count: 0, node: 'node-123_abc');
+        final packed = hlc.toString();
+        final restored = HLC.tryParse(packed);
+
+        expect(restored, isNotNull);
+        expect(restored!.node, equals('node-123_abc'));
+      });
+
+      test('handles UUID as node', () {
+        final uuid = '550e8400-e29b-41d4-a716-446655440000';
+        final hlc = HLC(timestamp: 1000, count: 0, node: uuid);
+        final packed = hlc.toString();
+        final restored = HLC.tryParse(packed);
+
+        expect(restored, isNotNull);
+        expect(restored!.node, equals(uuid));
+      });
+    });
+
+    group('compareTimestamps edge cases', () {
+      test('handles comparison of empty strings', () {
+        expect(HLC.compareTimestamps('', ''), equals(0));
+      });
+
+      test('empty string is less than valid timestamp', () {
+        final valid = HLC(timestamp: 1000, count: 0, node: 'a').toString();
+        expect(HLC.compareTimestamps('', valid), lessThan(0));
+        expect(HLC.compareTimestamps(valid, ''), greaterThan(0));
+      });
+
+      test('compares by count when timestamps equal', () {
+        final low = HLC(timestamp: 1000, count: 0, node: 'a').toString();
+        final high = HLC(timestamp: 1000, count: 10, node: 'a').toString();
+
+        expect(HLC.compareTimestamps(low, high), lessThan(0));
+        expect(HLC.compareTimestamps(high, low), greaterThan(0));
+      });
+
+      test('compares by node when timestamp and count equal', () {
+        final nodeA = HLC(timestamp: 1000, count: 0, node: 'aaa').toString();
+        final nodeZ = HLC(timestamp: 1000, count: 0, node: 'zzz').toString();
+
+        expect(HLC.compareTimestamps(nodeA, nodeZ), lessThan(0));
+        expect(HLC.compareTimestamps(nodeZ, nodeA), greaterThan(0));
+      });
+
+      test('returns 0 for identical timestamps', () {
+        final ts = HLC(timestamp: 1000, count: 5, node: 'test').toString();
+        expect(HLC.compareTimestamps(ts, ts), equals(0));
+      });
+    });
   });
 
   group('HLCState', () {

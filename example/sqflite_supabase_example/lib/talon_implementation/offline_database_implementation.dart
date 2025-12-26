@@ -4,9 +4,11 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:talon/talon.dart';
 
-// todo(jacoo): user must provide a function that maps Message type dynamic to sql string type maybe
-// actually, maps the String 'dataType' to a function that maps the value to it's type before it can
-// be inserted into the local values database. Hopefully this is redundant in most cases
+/// Example implementation of [OfflineDatabase] using sqflite.
+///
+/// This demonstrates how to implement the required methods for Talon.
+/// Note: Conflict resolution is handled automatically by the base class -
+/// you only need to implement [getExistingTimestamp].
 class MyOfflineDB extends OfflineDatabase {
   late final Database localDb;
 
@@ -25,15 +27,12 @@ class MyOfflineDB extends OfflineDatabase {
     );
   }
 
-  // todo(jacoo): document the fact that the user MUST NOT forget to implement
-  // the check wether this message should be applied or not by comparing the
-  // local timestamps
+  /// Apply a message to the data table.
+  ///
+  /// Note: You don't need to check shouldApplyMessage() here - the base class
+  /// handles conflict resolution before calling this method.
   @override
   Future<bool> applyMessageToLocalDataTable(Message message) async {
-    final shouldApply = await shouldApplyMessage(message);
-
-    if (!shouldApply) return false;
-
     try {
       // Use a transaction to ensure atomicity
       await localDb.transaction((txn) async {
@@ -125,31 +124,32 @@ class MyOfflineDB extends OfflineDatabase {
     sharedPrefs.setInt('last_synced_server_timestamp', serverTimestamp);
   }
 
+  /// Get the existing timestamp for a specific cell.
+  ///
+  /// This is used by the base class for conflict resolution.
+  /// Returns the most recent HLC timestamp for the given table/row/column.
   @override
-  Future<bool> shouldApplyMessage(Message message) async {
+  Future<String?> getExistingTimestamp({
+    required String table,
+    required String row,
+    required String column,
+  }) async {
     try {
-      // Query to check if any row exists with a greater local_timestamp
       final result = await localDb.rawQuery(
         '''
-      SELECT * 
-      FROM messages
-      WHERE table_name = ? AND row = ? AND column = ? AND local_timestamp > ?
-      LIMIT 1;
-      ''',
-        [
-          message.table,
-          message.row,
-          message.column,
-          message.localTimestamp,
-        ],
+        SELECT local_timestamp
+        FROM messages
+        WHERE table_name = ? AND row = ? AND "column" = ?
+        ORDER BY local_timestamp DESC
+        LIMIT 1;
+        ''',
+        [table, row, column],
       );
 
-      // If the result is empty, no rows with a greater timestamp exist
-      return result.isEmpty;
+      if (result.isEmpty) return null;
+      return result.first['local_timestamp'] as String?;
     } catch (e) {
-      // ignore: avoid_print
-      print('Error in shouldApplyMessage: $e');
-      return false; // Return false in case of an error
+      return null;
     }
   }
 
