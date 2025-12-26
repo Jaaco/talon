@@ -1,0 +1,137 @@
+---
+title: Firebase
+description: Firebase integration guide for Talon
+---
+
+# Firebase Integration
+
+This guide shows how to integrate Talon with Firebase Firestore.
+
+## Overview
+
+Firebase Firestore works well with Talon:
+- Real-time listeners for subscriptions
+- Batch writes for efficient sync
+- Offline support built-in
+
+## Schema
+
+Create a `messages` collection:
+
+```typescript
+// Firestore security rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /messages/{messageId} {
+      allow read: if request.auth != null
+                  && resource.data.user_id == request.auth.uid;
+      allow create: if request.auth != null
+                   && request.resource.data.user_id == request.auth.uid;
+    }
+  }
+}
+```
+
+## Implementation
+
+```dart
+class FirebaseServerDatabase extends ServerDatabase {
+  final FirebaseFirestore _firestore;
+
+  FirebaseServerDatabase(this._firestore);
+
+  @override
+  Future<List<Message>> getMessagesFromServer({
+    required int? lastSyncedServerTimestamp,
+    required String clientId,
+    required String userId,
+  }) async {
+    var query = _firestore
+        .collection('messages')
+        .where('user_id', isEqualTo: userId)
+        .where('client_id', isNotEqualTo: clientId);
+
+    if (lastSyncedServerTimestamp != null) {
+      query = query.where('server_timestamp',
+          isGreaterThan: lastSyncedServerTimestamp);
+    }
+
+    final snapshot = await query.orderBy('server_timestamp').get();
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+      return Message(
+        id: doc.id,
+        table: data['table_name'],
+        row: data['row'],
+        column: data['column'],
+        dataType: data['data_type'] ?? '',
+        value: data['value'],
+        serverTimestamp: data['server_timestamp'],
+        localTimestamp: data['local_timestamp'],
+        userId: data['user_id'],
+        clientId: data['client_id'],
+        hasBeenApplied: false,
+        hasBeenSynced: true,
+      );
+    }).toList();
+  }
+
+  @override
+  Future<bool> sendMessageToServer({required Message message}) async {
+    try {
+      await _firestore.collection('messages').doc(message.id).set({
+        'table_name': message.table,
+        'row': message.row,
+        'column': message.column,
+        'data_type': message.dataType,
+        'value': message.value,
+        'local_timestamp': message.localTimestamp,
+        'user_id': message.userId,
+        'client_id': message.clientId,
+        'server_timestamp': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  @override
+  StreamSubscription subscribeToServerMessages({
+    required String clientId,
+    required String userId,
+    required int? lastSyncedServerTimestamp,
+    required void Function(List<Message>) onMessagesReceived,
+  }) {
+    return _firestore
+        .collection('messages')
+        .where('user_id', isEqualTo: userId)
+        .snapshots()
+        .listen((snapshot) {
+          final messages = snapshot.docs
+              .where((doc) => doc.data()['client_id'] != clientId)
+              .map((doc) {
+                final data = doc.data();
+                return Message(
+                  id: doc.id,
+                  table: data['table_name'],
+                  // ... other fields
+                );
+              })
+              .toList();
+
+          if (messages.isNotEmpty) {
+            onMessagesReceived(messages);
+          }
+        });
+  }
+}
+```
+
+## Notes
+
+- Use `FieldValue.serverTimestamp()` for server timestamps
+- Firestore has its own offline support, but Talon adds conflict resolution
+- Consider using composite indexes for efficient queries

@@ -1,0 +1,124 @@
+---
+title: Common Issues
+description: Solutions to common Talon problems
+---
+
+# Common Issues
+
+Solutions to frequently encountered problems.
+
+## Sync Issues
+
+### Messages Not Syncing
+
+**Symptoms:** Changes stay in local database, never reach server.
+
+**Solutions:**
+1. Check `syncIsEnabled = true`
+2. Verify ServerDatabase implementation
+3. Check network connectivity
+4. Look for errors in `sendMessageToServer()`
+
+```dart
+// Debug: Check unsynced messages
+final unsynced = await offlineDb.getUnsyncedMessages();
+print('Unsynced: ${unsynced.length}');
+```
+
+### Real-time Not Working
+
+**Symptoms:** Changes from other devices don't appear.
+
+**Solutions:**
+1. Verify subscription is active
+2. Check server-side realtime is enabled
+3. Ensure filters (userId, clientId) are correct
+
+```dart
+// Debug: Listen directly
+talon.serverChanges.listen((change) {
+  print('Server change: ${change.messages.length} messages');
+});
+```
+
+## Conflict Issues
+
+### Wrong Data Winning
+
+**Symptoms:** Older changes overwriting newer ones.
+
+**Solutions:**
+1. Verify device clocks are reasonably accurate
+2. Check HLC timestamps are being generated
+3. Ensure `getExistingTimestamp()` returns correct data
+
+```dart
+// Debug: Check timestamps
+final message = offlineDb.messages.last;
+print('HLC: ${message.localTimestamp}');
+```
+
+### Duplicate Data
+
+**Symptoms:** Same row appearing multiple times.
+
+**Solutions:**
+1. Ensure unique IDs (`createNewIdFunction`)
+2. Check for duplicate inserts in `applyMessageToLocalDataTable()`
+
+## Database Issues
+
+### Table Not Found
+
+**Symptoms:** SQL errors about missing tables.
+
+**Solutions:**
+1. Ensure `init()` runs before using Talon
+2. Verify table creation SQL is correct
+3. Check database path
+
+### Data Not Persisting
+
+**Symptoms:** Data disappears after app restart.
+
+**Solutions:**
+1. Verify database is opened correctly
+2. Check for database deletion on init
+3. Ensure transactions are committed
+
+## Memory Issues
+
+### Stream Subscription Leaks
+
+**Symptoms:** Memory usage grows over time.
+
+**Solutions:**
+```dart
+// Always cancel subscriptions
+late StreamSubscription _sub;
+
+@override
+void initState() {
+  _sub = talon.changes.listen((_) => refresh());
+}
+
+@override
+void dispose() {
+  _sub.cancel();  // Don't forget!
+  super.dispose();
+}
+```
+
+### Dispose Talon
+
+```dart
+// On logout or when done
+talon.dispose();
+```
+
+## Getting Help
+
+If you're still stuck:
+1. Check [GitHub Issues](https://github.com/jaaco/talon/issues)
+2. Create a minimal reproduction
+3. Include Talon version and platform

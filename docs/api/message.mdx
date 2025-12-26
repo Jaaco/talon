@@ -1,0 +1,267 @@
+---
+title: Message
+description: Message class API reference
+---
+
+# Message
+
+A single data change in the Talon sync system. Each Message represents one field-level change to your data.
+
+## Overview
+
+Messages are the fundamental unit of synchronization in Talon. They capture:
+
+- **What changed**: table, row, column, value
+- **Who changed it**: userId, clientId
+- **When it changed**: localTimestamp (HLC), serverTimestamp
+- **Sync status**: hasBeenSynced, hasBeenApplied
+
+## Constructor
+
+```dart
+Message({
+  required String id,
+  required String table,
+  required String row,
+  required String column,
+  required String dataType,
+  required String value,
+  int? serverTimestamp,
+  required String localTimestamp,
+  required String userId,
+  required String clientId,
+  required bool hasBeenApplied,
+  required bool hasBeenSynced,
+})
+```
+
+In most cases, you won't create messages directly. Use `talon.saveChange()` instead.
+
+---
+
+## Properties
+
+### Identity Fields
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `String` | Unique message identifier (UUID) |
+| `userId` | `String` | User who made this change |
+| `clientId` | `String` | Client/device that made this change |
+
+### Location Fields
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `table` | `String` | Target table name |
+| `row` | `String` | Row identifier (primary key) |
+| `column` | `String` | Column name that changed |
+
+### Value Fields
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `value` | `String` | Serialized string value |
+| `dataType` | `String` | Type hint for deserialization |
+| `typedValue` | `dynamic` | Deserialized value (getter) |
+
+### Timestamp Fields
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `localTimestamp` | `String` | HLC timestamp for conflict resolution |
+| `serverTimestamp` | `int?` | Server-assigned timestamp for sync tracking |
+
+### Sync Status Fields
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `hasBeenSynced` | `bool` | Whether synced to server |
+| `hasBeenApplied` | `bool` | Whether applied to local data |
+
+---
+
+## Methods
+
+### `copyWith`
+
+```dart
+Message copyWith({
+  String? id,
+  String? table,
+  String? row,
+  String? column,
+  String? dataType,
+  String? value,
+  int? serverTimestamp,
+  String? localTimestamp,
+  String? userId,
+  String? clientId,
+  bool? hasBeenApplied,
+  bool? hasBeenSynced,
+})
+```
+
+Create a copy with some fields replaced.
+
+```dart
+final synced = message.copyWith(hasBeenSynced: true);
+```
+
+### `toMap`
+
+```dart
+Map<String, dynamic> toMap()
+```
+
+Convert to a Map for database storage.
+
+```dart
+await db.insert('messages', message.toMap());
+```
+
+**Note**: The `table` field is stored as `table_name` to avoid SQL reserved word conflicts. Boolean fields are stored as integers (0 or 1).
+
+### `fromMap`
+
+```dart
+factory Message.fromMap(Map<String, dynamic> map)
+```
+
+Create a Message from a database row.
+
+```dart
+final rows = await db.query('messages');
+final messages = rows.map((row) => Message.fromMap(row)).toList();
+```
+
+### `toJson`
+
+```dart
+String toJson()
+```
+
+Convert to JSON string.
+
+### `fromJson`
+
+```dart
+factory Message.fromJson(String source)
+```
+
+Create from JSON string.
+
+---
+
+## The `typedValue` Getter
+
+Returns the deserialized value based on `dataType`.
+
+```dart
+dynamic get typedValue
+```
+
+### Type Conversions
+
+| dataType | Returns | Notes |
+|----------|---------|-------|
+| `'null'` | `null` | - |
+| `'string'` | `String` | As-is |
+| `'int'` | `int` | Via `int.tryParse` |
+| `'double'` | `double` | Via `double.tryParse` |
+| `'bool'` | `bool` | `'1'` or `'true'` = true |
+| `'datetime'` | `DateTime?` | Via `DateTime.tryParse` |
+| `'json'` | `Map` or `List` | Via `json.decode` |
+
+### Example
+
+```dart
+// Integer value
+final countMsg = Message(..., dataType: 'int', value: '42');
+final count = countMsg.typedValue as int; // 42
+
+// JSON value
+final metaMsg = Message(..., dataType: 'json', value: '{"key":"val"}');
+final meta = metaMsg.typedValue as Map; // {'key': 'val'}
+
+// DateTime value
+final dateMsg = Message(..., dataType: 'datetime', value: '2024-01-15T10:30:00Z');
+final date = dateMsg.typedValue as DateTime;
+```
+
+---
+
+## Database Column Mapping
+
+When storing messages, use these column names:
+
+| Property | Column Name |
+|----------|-------------|
+| `id` | `id` |
+| `table` | `table_name` |
+| `row` | `row` |
+| `column` | `column` |
+| `dataType` | `data_type` |
+| `value` | `value` |
+| `serverTimestamp` | `server_timestamp` |
+| `localTimestamp` | `local_timestamp` |
+| `userId` | `user_id` |
+| `clientId` | `client_id` |
+| `hasBeenApplied` | `hasBeenApplied` |
+| `hasBeenSynced` | `hasBeenSynced` |
+
+---
+
+## Equality
+
+Two messages are equal if all their properties match:
+
+```dart
+@override
+bool operator ==(covariant Message other) {
+  return other.id == id &&
+      other.table == table &&
+      other.row == row &&
+      other.column == column &&
+      other.dataType == dataType &&
+      other.value == value &&
+      other.serverTimestamp == serverTimestamp &&
+      other.localTimestamp == localTimestamp &&
+      other.userId == userId &&
+      other.clientId == clientId &&
+      other.hasBeenApplied == hasBeenApplied &&
+      other.hasBeenSynced == hasBeenSynced;
+}
+```
+
+---
+
+## Example: Complete Message Lifecycle
+
+```dart
+// 1. User saves a change
+await talon.saveChange(
+  table: 'todos',
+  row: 'todo-123',
+  column: 'name',
+  value: 'Buy milk',
+);
+
+// 2. Internally, Talon creates a Message:
+// Message(
+//   id: 'msg-abc',
+//   table: 'todos',
+//   row: 'todo-123',
+//   column: 'name',
+//   dataType: 'string',
+//   value: 'Buy milk',
+//   localTimestamp: '1705123456789:0001:device-456',
+//   userId: 'user-123',
+//   clientId: 'device-456',
+//   hasBeenApplied: true,  // Applied locally
+//   hasBeenSynced: false,  // Not yet synced
+// )
+
+// 3. After sync, hasBeenSynced becomes true
+// 4. Server assigns serverTimestamp (e.g., 1705123456800)
+```

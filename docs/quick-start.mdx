@@ -1,0 +1,213 @@
+---
+title: Quick Start
+description: Build your first offline-first feature with Talon
+---
+
+# Quick Start
+
+Build your first offline-first feature in 10 minutes.
+
+## Overview
+
+We'll build a simple todo app that:
+- Works offline
+- Syncs automatically when online
+- Handles conflicts between devices
+
+## Step 1: Create Talon Instance
+
+```dart
+import 'package:talon/talon.dart';
+import 'package:uuid/uuid.dart';
+
+class TalonService {
+  late final Talon talon;
+  final _uuid = Uuid();
+
+  Future<void> init({
+    required String userId,
+    required OfflineDatabase offlineDb,
+    required ServerDatabase serverDb,
+  }) async {
+    talon = Talon(
+      userId: userId,
+      clientId: await _getClientId(),
+      offlineDatabase: offlineDb,
+      serverDatabase: serverDb,
+      createNewIdFunction: () => _uuid.v4(),
+    );
+  }
+
+  Future<String> _getClientId() async {
+    // Return a unique ID for this device
+    // Store in SharedPreferences or similar
+    return 'device-${_uuid.v4()}';
+  }
+}
+```
+
+## Step 2: Enable Sync
+
+```dart
+// Enable sync when user is authenticated
+talon.syncIsEnabled = true;
+
+// Optionally, start periodic background sync
+talon.startPeriodicSync(interval: Duration(minutes: 5));
+```
+
+## Step 3: Save Changes
+
+```dart
+class TodoRepository {
+  final Talon talon;
+
+  TodoRepository(this.talon);
+
+  Future<void> addTodo(String id, String name) async {
+    await talon.saveChange(
+      table: 'todos',
+      row: id,
+      column: 'name',
+      value: name,
+    );
+
+    await talon.saveChange(
+      table: 'todos',
+      row: id,
+      column: 'is_done',
+      value: false,  // Talon handles type serialization
+    );
+
+    await talon.saveChange(
+      table: 'todos',
+      row: id,
+      column: 'created_at',
+      value: DateTime.now(),
+    );
+  }
+
+  Future<void> toggleTodo(String id, bool isDone) async {
+    await talon.saveChange(
+      table: 'todos',
+      row: id,
+      column: 'is_done',
+      value: isDone,
+    );
+  }
+}
+```
+
+## Step 4: Listen for Changes
+
+```dart
+class TodoScreen extends StatefulWidget {
+  @override
+  _TodoScreenState createState() => _TodoScreenState();
+}
+
+class _TodoScreenState extends State<TodoScreen> {
+  late StreamSubscription _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTodos();
+
+    // Listen for changes (local and server)
+    _subscription = talon.changes.listen((change) {
+      if (change.affectsTable('todos')) {
+        _loadTodos();  // Refresh the list
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadTodos() async {
+    // Query your local database
+    final todos = await db.query('todos');
+    setState(() => _todos = todos);
+  }
+}
+```
+
+## Step 5: Batch Changes
+
+For better performance, use batch saves:
+
+```dart
+Future<void> addTodoWithDetails(String id, String name, String notes) async {
+  await talon.saveChanges([
+    TalonChangeData(table: 'todos', row: id, column: 'name', value: name),
+    TalonChangeData(table: 'todos', row: id, column: 'notes', value: notes),
+    TalonChangeData(table: 'todos', row: id, column: 'is_done', value: false),
+    TalonChangeData(table: 'todos', row: id, column: 'created_at', value: DateTime.now()),
+  ]);
+}
+```
+
+## Step 6: Clean Up
+
+```dart
+// When the user logs out
+talon.dispose();
+```
+
+## Complete Example
+
+Here's a complete minimal example:
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:talon/talon.dart';
+import 'package:uuid/uuid.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize databases (you implement these)
+  final offlineDb = MyOfflineDatabase();
+  final serverDb = MyServerDatabase();
+
+  await offlineDb.init();
+
+  // Create Talon
+  final talon = Talon(
+    userId: 'user-123',
+    clientId: 'device-${Uuid().v4()}',
+    offlineDatabase: offlineDb,
+    serverDatabase: serverDb,
+    createNewIdFunction: () => Uuid().v4(),
+  );
+
+  talon.syncIsEnabled = true;
+
+  runApp(MyApp(talon: talon));
+}
+
+class MyApp extends StatelessWidget {
+  final Talon talon;
+
+  MyApp({required this.talon});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: TodoListScreen(talon: talon),
+    );
+  }
+}
+```
+
+## Next Steps
+
+You've got the basics! Now dive deeper:
+
+- [OfflineDatabase Guide](/guide/offline-database) - Implement local storage
+- [ServerDatabase Guide](/guide/server-database) - Connect to your backend
+- [Supabase Example](/backends/supabase) - Complete Supabase implementation

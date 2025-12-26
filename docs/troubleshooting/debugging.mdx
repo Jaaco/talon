@@ -1,0 +1,108 @@
+---
+title: Debugging
+description: How to debug Talon sync issues
+---
+
+# Debugging
+
+Techniques for debugging Talon sync issues.
+
+## Enable Logging
+
+Add logging to your implementations:
+
+```dart
+@override
+Future<bool> sendMessageToServer({required Message message}) async {
+  print('[Talon] Sending: ${message.table}.${message.column}');
+  try {
+    await server.insert(message);
+    print('[Talon] Sent successfully');
+    return true;
+  } catch (e) {
+    print('[Talon] Send failed: $e');
+    return false;
+  }
+}
+```
+
+## Check Sync Status
+
+```dart
+// Count unsynced messages
+final unsynced = await offlineDb.getUnsyncedMessages();
+print('Pending sync: ${unsynced.length}');
+
+// Check last sync time
+final lastSync = await offlineDb.readLastSyncedServerTimestamp();
+print('Last sync: $lastSync');
+```
+
+## Monitor Streams
+
+```dart
+talon.changes.listen((change) {
+  print('Change received:');
+  print('  Source: ${change.source}');
+  print('  Messages: ${change.messages.length}');
+  for (final m in change.messages) {
+    print('    ${m.table}.${m.row}.${m.column} = ${m.value}');
+  }
+});
+```
+
+## Inspect Messages
+
+```dart
+// Query messages table
+final db = await openDatabase('app.db');
+final messages = await db.query('talon_messages',
+  orderBy: 'local_timestamp DESC',
+  limit: 10,
+);
+
+for (final m in messages) {
+  print('ID: ${m['id']}');
+  print('  ${m['table_name']}.${m['column']} = ${m['value']}');
+  print('  Synced: ${m['hasBeenSynced']}');
+  print('  HLC: ${m['local_timestamp']}');
+}
+```
+
+## Force Sync
+
+```dart
+// Bypass debounce
+await talon.forceSyncToServer();
+
+// Full sync
+await talon.runSync();
+```
+
+## Check HLC
+
+```dart
+final hlc = HLC.tryParse(message.localTimestamp);
+if (hlc != null) {
+  print('Timestamp: ${hlc.timestamp}');
+  print('Count: ${hlc.count}');
+  print('Node: ${hlc.node}');
+  print('Date: ${DateTime.fromMillisecondsSinceEpoch(hlc.timestamp)}');
+}
+```
+
+## Compare Conflicts
+
+```dart
+final ts1 = message1.localTimestamp;
+final ts2 = message2.localTimestamp;
+final result = HLC.compareTimestamps(ts1, ts2);
+
+if (result > 0) {
+  print('Message 1 wins');
+} else if (result < 0) {
+  print('Message 2 wins');
+} else {
+  print('Equal (should not happen)');
+}
+```

@@ -1,0 +1,176 @@
+---
+title: Implementation Overview
+description: What you need to implement to use Talon
+---
+
+# Implementation Overview
+
+To use Talon, you need to implement two interfaces that connect it to your databases.
+
+## Required Implementations
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         TALON                                │
+│                                                              │
+│  Handles: Sync logic, HLC, conflict resolution, streams     │
+│                                                              │
+├──────────────────────────┬───────────────────────────────────┤
+│                          │                                   │
+│  OfflineDatabase         │  ServerDatabase                   │
+│  (you implement)         │  (you implement)                  │
+│                          │                                   │
+│  ┌────────────────────┐  │  ┌─────────────────────────────┐ │
+│  │ sqflite / Drift /  │  │  │ Supabase / Firebase /       │ │
+│  │ Hive / Isar        │  │  │ REST API / GraphQL          │ │
+│  └────────────────────┘  │  └─────────────────────────────┘ │
+│                          │                                   │
+└──────────────────────────┴───────────────────────────────────┘
+```
+
+## OfflineDatabase
+
+Connects Talon to your local database:
+
+| Method | Purpose |
+|--------|---------|
+| `init()` | Create tables |
+| `applyMessageToLocalDataTable()` | Update your data |
+| `applyMessageToLocalMessageTable()` | Store messages |
+| `getExistingTimestamp()` | Query for conflicts |
+| `getUnsyncedMessages()` | Get messages to sync |
+| `markMessagesAsSynced()` | Update sync status |
+| `readLastSyncedServerTimestamp()` | Track sync progress |
+| `saveLastSyncedServerTimestamp()` | Save sync progress |
+
+[Full OfflineDatabase Guide →](/guide/offline-database)
+
+## ServerDatabase
+
+Connects Talon to your backend:
+
+| Method | Purpose |
+|--------|---------|
+| `getMessagesFromServer()` | Pull changes |
+| `sendMessageToServer()` | Push single change |
+| `sendMessagesToServer()` | Push batch (optional) |
+| `subscribeToServerMessages()` | Real-time updates |
+
+[Full ServerDatabase Guide →](/guide/server-database)
+
+## Estimated Setup
+
+| Component | Lines of Code | Time |
+|-----------|---------------|------|
+| OfflineDatabase | ~100-150 | 30 min |
+| ServerDatabase | ~50-100 | 20 min |
+| Schema setup | ~30 | 10 min |
+| **Total** | **~200-300** | **~1 hour** |
+
+## Quick Reference
+
+### Minimal OfflineDatabase
+
+```dart
+class MyOfflineDatabase extends OfflineDatabase {
+  final Database db;
+  MyOfflineDatabase(this.db);
+
+  @override
+  Future<void> init() async {
+    await db.execute(TalonSchema.messagesTableSql);
+  }
+
+  @override
+  Future<bool> applyMessageToLocalDataTable(Message message) async {
+    // UPDATE your_table SET column = value WHERE id = row
+    return true;
+  }
+
+  @override
+  Future<bool> applyMessageToLocalMessageTable(Message message) async {
+    await db.insert('talon_messages', message.toMap());
+    return true;
+  }
+
+  @override
+  Future<String?> getExistingTimestamp({
+    required String table, required String row, required String column,
+  }) async {
+    // Query for existing HLC timestamp
+    return null;
+  }
+
+  @override
+  Future<List<Message>> getUnsyncedMessages() async {
+    final rows = await db.query('talon_messages', where: 'hasBeenSynced = 0');
+    return rows.map((r) => Message.fromMap(r)).toList();
+  }
+
+  @override
+  Future<void> markMessagesAsSynced(List<String> ids) async {
+    // UPDATE talon_messages SET hasBeenSynced = 1 WHERE id IN (...)
+  }
+
+  @override
+  Future<int?> readLastSyncedServerTimestamp() async => null;
+
+  @override
+  Future<void> saveLastSyncedServerTimestamp(int timestamp) async {}
+}
+```
+
+### Minimal ServerDatabase
+
+```dart
+class MyServerDatabase extends ServerDatabase {
+  final SupabaseClient supabase;
+  MyServerDatabase(this.supabase);
+
+  @override
+  Future<List<Message>> getMessagesFromServer({
+    required int? lastSyncedServerTimestamp,
+    required String clientId,
+    required String userId,
+  }) async {
+    final response = await supabase
+        .from('messages')
+        .select()
+        .eq('user_id', userId)
+        .neq('client_id', clientId)
+        .gt('server_timestamp', lastSyncedServerTimestamp ?? 0);
+    return response.map((r) => Message.fromMap(r)).toList();
+  }
+
+  @override
+  Future<bool> sendMessageToServer({required Message message}) async {
+    try {
+      await supabase.from('messages').insert(message.toMap());
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  @override
+  StreamSubscription subscribeToServerMessages({
+    required String clientId,
+    required String userId,
+    required int? lastSyncedServerTimestamp,
+    required void Function(List<Message>) onMessagesReceived,
+  }) {
+    return supabase
+        .from('messages')
+        .stream(primaryKey: ['id'])
+        .listen((rows) {
+          onMessagesReceived(rows.map((r) => Message.fromMap(r)).toList());
+        });
+  }
+}
+```
+
+## Next Steps
+
+1. [Database Schema](/guide/schema) - Create the messages table
+2. [OfflineDatabase](/guide/offline-database) - Complete local implementation
+3. [ServerDatabase](/guide/server-database) - Connect to your backend
