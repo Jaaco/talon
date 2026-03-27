@@ -45,3 +45,6 @@ app.*.map.json
 # Environment files
 .env
 .env.*
+
+# Patrol generated
+patrol_test/test_bundle.dart
