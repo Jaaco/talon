@@ -1,2 +1,7 @@
-const supabaseUrl = '';
-const supabaseKey = '';
+const supabaseUrl = String.fromEnvironment(
+  'SUPABASE_URL',
+);
+
+const supabaseKey = String.fromEnvironment(
+  'SUPABASE_ANON_KEY',
+);

@@ -13,6 +13,29 @@ import 'talon_implementation/talon_implementation.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  if (supabaseUrl.isEmpty || supabaseKey.isEmpty) {
+    runApp(
+      const MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Text(
+                'Missing Supabase configuration.\n\n'
+                'Run with:\n'
+                'flutter run -d chrome \\\n'
+                '  --dart-define=SUPABASE_URL=your-url \\\n'
+                '  --dart-define=SUPABASE_ANON_KEY=your-key',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return;
+  }
+
   await Supabase.initialize(
     url: supabaseUrl,
     anonKey: supabaseKey,

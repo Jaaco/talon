@@ -1,16 +1,38 @@
 # sqflite_supabase_example
 
-A new Flutter project.
+A Flutter example app demonstrating offline-first CRUD with Supabase sync using the talon package.
 
-## Getting Started
+## Setup
 
-This project is a starting point for a Flutter application.
+### 1. Get your Supabase credentials
 
-A few resources to get you started if this is your first Flutter project:
+From your [Supabase dashboard](https://supabase.com/dashboard), copy:
+- **Project URL** (e.g. `https://abc123.supabase.co`)
+- **Anon public key** (found under Settings > API)
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### 2. Run the app
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Pass your credentials via `--dart-define`:
+
+```bash
+flutter run -d chrome \
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=your-anon-key
+```
+
+If you omit the credentials, the app will show a helpful error screen with instructions.
+
+### 3. Optional: use a dart-define file
+
+To avoid typing keys each time, create a `.env` file (git-ignored):
+
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+```
+
+Then run:
+
+```bash
+flutter run -d chrome --dart-define-from-file=.env
+```
