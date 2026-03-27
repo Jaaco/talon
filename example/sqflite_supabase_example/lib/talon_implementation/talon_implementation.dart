@@ -1,27 +1,35 @@
 import 'package:flutter/foundation.dart';
 import 'package:talon/talon.dart';
+import 'package:uuid/uuid.dart';
 
+import 'client_id_stub.dart'
+    if (dart.library.html) 'client_id_web.dart';
 import 'offline_database_implementation.dart';
 import 'server_database_implementation.dart';
 
 final offlineDatabase = MyOfflineDB();
 final serverDatabase = MyServerDatabaseImplementation();
 
+const _uuid = Uuid();
+
 final talon = Talon(
   userId: 'user_1',
   clientId: clientId,
   serverDatabase: serverDatabase,
   offlineDatabase: offlineDatabase,
-  createNewIdFunction: () {
-    /// Here one could use the 'uuid' package to generate a unique id
-    return DateTime.now().toString();
-  },
+  createNewIdFunction: () => _uuid.v4(),
 );
 
-/// Here one could use a device info plugin to get a unique device id
-/// For testing purposes, we will just return the platform name, so a macos &
-/// iOS simulator run at the same time will behave as different devices
+/// Returns a unique client ID per platform/tab.
+///
+/// On web/Chrome, uses a random UUID stored in sessionStorage so that each
+/// tab acts as a distinct client — enabling two-tab conflict resolution demos.
+/// On other platforms, uses the platform name (macOS, iOS, Android).
 String get clientId {
+  if (kIsWeb) {
+    return getOrCreateWebClientId(_uuid);
+  }
+
   if (defaultTargetPlatform == TargetPlatform.macOS) {
     return 'macOS';
   }

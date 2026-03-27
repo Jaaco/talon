@@ -192,10 +192,9 @@ class MyOfflineDB extends OfflineDatabase {
      ''');
   }
 
-  void resetDatabase() async {
-    createTables(localDb);
-
-    saveLastSyncedServerTimestamp(-1);
+  Future<void> resetDatabase() async {
+    await createTables(localDb);
+    await saveLastSyncedServerTimestamp(-1);
   }
 
   Future<List<Map<String, Object?>>> runQuery(String query) async {

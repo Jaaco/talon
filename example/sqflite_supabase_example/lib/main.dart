@@ -1,14 +1,13 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:sqflite_supabase_example/todo_feature/states/todo_list_state.dart';
-import 'package:sqflite_supabase_example/todo_feature/widgets/todo_list_widget.dart';
-import 'package:sqflite_supabase_example/syncing_controls/widgets/syncing_controls_widget.dart';
-import 'package:sqflite_supabase_example/talon_implementation/config.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'todo_feature/widgets/add_todo.dart';
-import 'syncing_controls/states/syncing_controls_state.dart';
+import 'features/todos/data/todo_local_data_source.dart';
+import 'features/todos/data/todo_remote_data_source.dart';
+import 'features/todos/data/todo_repository_impl.dart';
+import 'features/todos/presentation/todo_list_screen.dart';
+import 'features/todos/presentation/todo_list_view_model.dart';
+import 'talon_implementation/config.dart';
 import 'talon_implementation/talon_implementation.dart';
 
 void main() async {
@@ -20,62 +19,64 @@ void main() async {
   );
 
   await offlineDatabase.init();
-
   talon.startPeriodicSync();
 
-  runApp(const MyApp());
+  final localDataSource = TodoLocalDataSourceImpl(
+    runQuery: offlineDatabase.runQuery,
+  );
+  final remoteDataSource = TodoRemoteDataSourceImpl(
+    syncFromServer: () => talon.syncFromServer(),
+  );
+
+  final repository = TodoRepositoryImpl(
+    local: localDataSource,
+    remote: remoteDataSource,
+    saveChange: talon.saveChange,
+  );
+
+  final viewModel = TodoListViewModel(
+    repository: repository,
+    setSyncEnabled: (enabled) => talon.syncIsEnabled = enabled,
+  );
+
+  // Refresh todos whenever talon receives any change (local or server).
+  talon.changes.listen((_) => viewModel.onTalonChange());
+
+  runApp(MyApp(
+    viewModel: viewModel,
+    onReset: () async {
+      await offlineDatabase.resetDatabase();
+      await viewModel.onTalonChange();
+    },
+  ));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final TodoListViewModel viewModel;
+  final Future<void> Function() onReset;
 
-  // This widget is the root of your application.
+  const MyApp({
+    super.key,
+    required this.viewModel,
+    required this.onReset,
+  });
+
   @override
   Widget build(BuildContext context) {
-    return CupertinoApp(
-      localizationsDelegates: localizationsDelegates,
-      theme: const CupertinoThemeData(
+    return ShadApp(
+      title: 'Talon Todo Demo',
+      theme: ShadThemeData(
+        colorScheme: const ShadSlateColorScheme.light(),
         brightness: Brightness.light,
-        primaryColor: CupertinoColors.white,
-        scaffoldBackgroundColor: Color.fromARGB(255, 90, 101, 255),
       ),
-      home: MultiProvider(
-        providers: [
-          ChangeNotifierProvider(create: (context) => SyncingControlsState()),
-          ChangeNotifierProvider(create: (context) => TodoListState()),
-        ],
-        builder: (context, child) {
-          final isOnline =
-              Provider.of<SyncingControlsState>(context).syncIsEnabled;
-
-          return Scaffold(
-            backgroundColor: isOnline
-                ? const Color.fromARGB(255, 90, 101, 255)
-                : const Color.fromARGB(255, 159, 162, 211),
-            body: const Padding(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  SizedBox(height: 64),
-                  AddTodoWidget(),
-                  SizedBox(height: 12),
-                  Expanded(
-                    child: TodoListWidget(),
-                  ),
-                  SyncingControlsWidget(),
-                  SizedBox(height: 32),
-                ],
-              ),
-            ),
-          );
-        },
+      darkTheme: ShadThemeData(
+        colorScheme: const ShadSlateColorScheme.dark(),
+        brightness: Brightness.dark,
+      ),
+      home: TodoListScreen(
+        viewModel: viewModel,
+        onReset: onReset,
       ),
     );
   }
 }
-
-const localizationsDelegates = [
-  DefaultMaterialLocalizations.delegate,
-  DefaultCupertinoLocalizations.delegate,
-  DefaultWidgetsLocalizations.delegate,
-];
