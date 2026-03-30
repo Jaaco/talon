@@ -158,7 +158,7 @@ void main() {
         final local = HLC(timestamp: 1000, count: 5, node: 'test-device');
         final remote = HLC(timestamp: 5000, count: 10, node: 'other-device');
 
-        final result = utils.receive(local, remote, now: 1000);
+        final result = utils.receive(local, remote);
 
         expect(result.timestamp, equals(5000));
         expect(result.count, equals(11)); // remote.count + 1
@@ -169,7 +169,7 @@ void main() {
         final local = HLC(timestamp: 5000, count: 5, node: 'test-device');
         final remote = HLC(timestamp: 1000, count: 10, node: 'other-device');
 
-        final result = utils.receive(local, remote, now: 1000);
+        final result = utils.receive(local, remote);
 
         expect(result.timestamp, equals(5000));
         expect(result.count, equals(6)); // local.count + 1
@@ -180,7 +180,7 @@ void main() {
         final local = HLC(timestamp: 3000, count: 5, node: 'test-device');
         final remote = HLC(timestamp: 3000, count: 10, node: 'other-device');
 
-        final result = utils.receive(local, remote, now: 1000);
+        final result = utils.receive(local, remote);
 
         expect(result.timestamp, equals(3000));
         expect(result.count, equals(11)); // max(5, 10) + 1
@@ -188,11 +188,11 @@ void main() {
       });
 
       test('uses physical time when it is ahead of both', () {
-        final now = 50000;
+        final now = DateTime.now().millisecondsSinceEpoch;
         final local = HLC(timestamp: now - 10000, count: 5, node: 'test-device');
         final remote = HLC(timestamp: now - 5000, count: 10, node: 'other-device');
 
-        final result = utils.receive(local, remote, now: now);
+        final result = utils.receive(local, remote);
 
         // Physical time should be used, count reset to 0
         expect(result.timestamp, greaterThanOrEqualTo(now));

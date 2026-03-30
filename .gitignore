@@ -6,10 +6,3 @@
 # Avoid committing pubspec.lock for library packages; see
 # https://dart.dev/guides/libraries/private-files#pubspeclock.
 pubspec.lock
-
-# Gas Town (added by gt)
-.runtime/
-.claude/
-.logs/
-__pycache__/
-state.json
