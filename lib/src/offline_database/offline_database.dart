@@ -142,15 +142,16 @@ abstract class OfflineDatabase {
   /// The message is always saved to the message table for tracking.
   /// It is only applied to the data table if [shouldApplyMessage] returns true.
   Future<bool> saveMessageFromServer(Message message) async {
+    // Check if this message should be applied (conflict resolution)
+    // Do this BEFORE saving to message table to avoid comparing a message to itself
+    final shouldApply = await shouldApplyMessage(message);
+
     // Always save to message table first (for history/sync tracking)
     try {
       await applyMessageToLocalMessageTable(message);
     } catch (e) {
       return false;
     }
-
-    // Check if this message should be applied (conflict resolution)
-    final shouldApply = await shouldApplyMessage(message);
 
     if (shouldApply) {
       // Apply to data table
@@ -178,13 +179,22 @@ abstract class OfflineDatabase {
     final allMessagesWereSaved = !result.any((r) => r == false);
 
     if (allMessagesWereSaved && messages.isNotEmpty) {
-      final highestServerTimestamp = messages.fold(0, (val, message) {
-        if (message.serverTimestamp == null) return val;
+      // Find the highest server timestamp, ignoring null values
+      int? highestServerTimestamp;
+      for (final message in messages) {
+        if (message.serverTimestamp != null) {
+          if (highestServerTimestamp == null) {
+            highestServerTimestamp = message.serverTimestamp;
+          } else {
+            highestServerTimestamp = max(highestServerTimestamp, message.serverTimestamp!);
+          }
+        }
+      }
 
-        return max(val, message.serverTimestamp!);
-      });
-
-      await saveLastSyncedServerTimestamp(highestServerTimestamp);
+      // Only update if we found at least one non-null timestamp
+      if (highestServerTimestamp != null) {
+        await saveLastSyncedServerTimestamp(highestServerTimestamp);
+      }
     }
   }
 
